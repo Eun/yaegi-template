@@ -1,4 +1,4 @@
-## yaegi-template
+# yaegi-template [![Travis](https://img.shields.io/travis/Eun/yaegi-template.svg)](https://travis-ci.org/Eun/yaegi-template) [![Codecov](https://img.shields.io/codecov/c/github/Eun/yaegi-template.svg)](https://codecov.io/gh/Eun/yaegi-template) [![GoDoc](https://godoc.org/github.com/Eun/yaegi-template?status.svg)](https://godoc.org/github.com/Eun/yaegi-template) [![go-report](https://goreportcard.com/badge/github.com/Eun/yaegi-template)](https://goreportcard.com/report/github.com/Eun/yaegi-template)
 Use [yaegi](https://github.com/containous/yaegi) as a template engine.
 
 ```go
