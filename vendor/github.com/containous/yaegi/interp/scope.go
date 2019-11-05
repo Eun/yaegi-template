@@ -44,17 +44,15 @@ func (k sKind) String() string {
 // A symbol represents an interpreter object such as type, constant, var, func,
 // label, builtin or binary object. Symbols are defined within a scope.
 type symbol struct {
-	kind      sKind
-	typ       *itype        // Type of value
-	node      *node         // Node value if index is negative
-	from      []*node       // list of nodes jumping to node if kind is label, or nil
-	recv      *receiver     // receiver node value, if sym refers to a method
-	index     int           // index of value in frame or -1
-	rval      reflect.Value // default value (used for constants)
-	path      string        // package path if typ.cat is SrcPkgT or BinPkgT
-	builtin   bltnGenerator // Builtin function or nil
-	global    bool          // true if symbol is defined in global space
-	recursive bool          // true if symbol is a recursive type definition
+	kind    sKind
+	typ     *itype        // Type of value
+	node    *node         // Node value if index is negative
+	from    []*node       // list of nodes jumping to node if kind is label, or nil
+	recv    *receiver     // receiver node value, if sym refers to a method
+	index   int           // index of value in frame or -1
+	rval    reflect.Value // default value (used for constants)
+	builtin bltnGenerator // Builtin function or nil
+	global  bool          // true if symbol is defined in global space
 	// TODO: implement constant checking
 	//constant bool             // true if symbol value is constant
 }
@@ -162,8 +160,8 @@ func (interp *Interpreter) initScopePkg(n *node) (*scope, string) {
 	sc := interp.universe
 	pkgName := mainID
 
-	if n.kind == fileStmt {
-		pkgName = n.child[0].ident
+	if p := fileNode(n); p != nil {
+		pkgName = p.child[0].ident
 	}
 
 	if _, ok := interp.scopes[pkgName]; !ok {

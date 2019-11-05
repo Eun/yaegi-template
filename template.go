@@ -13,11 +13,10 @@ import (
 
 	"errors"
 
-	"github.com/Eun/go-convert"
+	"fmt"
+
 	"github.com/containous/yaegi/interp"
 )
-
-var defaultContext = map[string]interface{}{}
 
 type Template struct {
 	options        interp.Options
@@ -26,7 +25,6 @@ type Template struct {
 	consumedReader bool
 	StartTokens    []rune
 	EndTokens      []rune
-	context        reflect.Value
 	interp         *interp.Interpreter
 	outputBuffer   *bytes.Buffer
 }
@@ -54,22 +52,17 @@ func (t *Template) Parse(reader io.Reader) error {
 	t.templateReader = reader
 
 	t.interp = interp.New(t.options)
+
+	t.outputBuffer = bytes.NewBuffer(nil)
+
+	t.hijackOs()
+	t.hijackFmt()
+
 	for i := 0; i < len(t.use); i++ {
 		t.interp.Use(t.use[i])
 	}
 
-	t.outputBuffer = bytes.NewBuffer(nil)
-	a := reflect.ValueOf(defaultContext)
-	t.context = reflect.New(a.Type()).Elem()
-	t.interp.Use(interp.Exports{
-		"internal": map[string]reflect.Value{
-			"out":     reflect.ValueOf(t.outputBuffer),
-			"context": t.context,
-		},
-	})
-
 	t.interp.Eval(`import "fmt"`)
-	t.interp.Eval(`import . "internal"`)
 
 	return nil
 }
@@ -205,17 +198,72 @@ func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, e
 }
 func (t *Template) runCode(code string, out io.Writer, context interface{}) (int, error) {
 	if context != nil {
-		m, err := convert.Convert(context, defaultContext)
-		if err != nil {
+		t.interp.Use(interp.Exports{
+			"internal": map[string]reflect.Value{
+				"context": reflect.ValueOf(context),
+			},
+		})
+		// reimport so we have the correct context values
+		if _, err := t.interp.Eval(`import . "internal"`); err != nil {
 			return 0, err
 		}
-		t.context.Set(reflect.ValueOf(m.(map[string]interface{})))
 	}
-	_, err := t.interp.Eval(code)
-	if err != nil {
+
+	if err := t.evalCode(code); err != nil {
 		return 0, err
 	}
 	n, err := out.Write(t.outputBuffer.Bytes())
 	t.outputBuffer.Reset()
 	return n, err
+}
+
+func (t *Template) evalCode(code string) (err error) {
+	defer func() {
+		e := recover()
+		if e == nil {
+			return
+		}
+		switch v := e.(type) {
+		case error:
+			err = v
+		default:
+			err = fmt.Errorf("%v", v)
+		}
+	}()
+
+	_, err = t.interp.Eval(code)
+	if err != nil {
+		return err
+	}
+	return err
+}
+
+func (t *Template) hijackOs() {
+	for i, e := range t.use {
+		if _, ok := e["os"]; ok {
+			t.use[i]["os"]["Stdout"] = reflect.ValueOf(t.outputBuffer)
+		}
+	}
+}
+
+func (t *Template) hijackFmt() {
+	print := func(a ...interface{}) (int, error) {
+		return fmt.Fprint(t.outputBuffer, a...)
+	}
+
+	printf := func(format string, a ...interface{}) (int, error) {
+		return fmt.Fprintf(t.outputBuffer, format, a...)
+	}
+
+	println := func(a ...interface{}) (int, error) {
+		return fmt.Fprintln(t.outputBuffer, a...)
+	}
+
+	for i, e := range t.use {
+		if _, ok := e["fmt"]; ok {
+			t.use[i]["fmt"]["Print"] = reflect.ValueOf(print)
+			t.use[i]["fmt"]["Printf"] = reflect.ValueOf(printf)
+			t.use[i]["fmt"]["Println"] = reflect.ValueOf(println)
+		}
+	}
 }

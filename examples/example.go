@@ -13,15 +13,16 @@ func main() {
 	template.MustParseString(`
 <html>
 <$
+	import "time"
 	func GreetUser(name string) {
-		fmt.Fprintf(out, "Hello %s", name)
+		fmt.Printf("Hello %s, it is %s", name, time.Now().Format(time.Kitchen))
 	}
 $>
 
 <p>
 <$
-	if context["LoggedIn"].(bool) {
-		GreetUser(context["UserName"].(string))
+	if context.LoggedIn {
+		GreetUser(context.UserName)
 	}
 $>
 </p>
@@ -35,6 +36,6 @@ $>
 
 	template.MustExec(os.Stdout, &Context{
 		LoggedIn: true,
-		UserName: "Joe",
+		UserName: "Joe Doe",
 	})
 }

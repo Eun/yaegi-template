@@ -3,6 +3,7 @@ package interp
 import (
 	"bufio"
 	"fmt"
+	"go/build"
 	"go/scanner"
 	"go/token"
 	"os"
@@ -53,15 +54,18 @@ type frame struct {
 	recovered interface{}       // to handle panic recover
 }
 
-// Exports stores the map of external values per package
+// Exports stores the map of binary packages per package path
 type Exports map[string]map[string]reflect.Value
+
+// imports stores the map of source packages per package path
+type imports map[string]map[string]*symbol
 
 // opt stores interpreter options
 type opt struct {
-	astDot bool   // display AST graph (debug)
-	cfgDot bool   // display CFG graph (debug)
-	noRun  bool   // compile, but do not run
-	goPath string // custom GOPATH
+	astDot  bool          // display AST graph (debug)
+	cfgDot  bool          // display CFG graph (debug)
+	noRun   bool          // compile, but do not run
+	context build.Context // build context: GOPATH, build constraints
 }
 
 // Interpreter contains global resources and state
@@ -73,7 +77,9 @@ type Interpreter struct {
 	fset     *token.FileSet    // fileset to locate node in source code
 	universe *scope            // interpreter global level scope
 	scopes   map[string]*scope // package level scopes, indexed by package name
-	binPkg   Exports           // runtime binary values used in interpreter
+	binPkg   Exports           // binary packages used in interpreter, indexed by path
+	srcPkg   imports           // source packages used in interpreter, indexed by path
+	rdir     map[string]bool   // for src import cycle detection
 }
 
 const (
@@ -118,17 +124,26 @@ func (n *node) Walk(in func(n *node) bool, out func(n *node)) {
 type Options struct {
 	// GoPath sets GOPATH for the interpreter
 	GoPath string
+	// BuildTags sets build constraints for the interpreter
+	BuildTags []string
 }
 
 // New returns a new interpreter
 func New(options Options) *Interpreter {
 	i := Interpreter{
-		opt:      opt{goPath: options.GoPath},
+		opt:      opt{context: build.Default},
+		frame:    &frame{data: []reflect.Value{}},
 		fset:     token.NewFileSet(),
 		universe: initUniverse(),
 		scopes:   map[string]*scope{},
 		binPkg:   Exports{"": map[string]reflect.Value{"_error": reflect.ValueOf((*_error)(nil))}},
-		frame:    &frame{data: []reflect.Value{}},
+		srcPkg:   imports{},
+		rdir:     map[string]bool{},
+	}
+
+	i.opt.context.GOPATH = options.GoPath
+	if len(options.BuildTags) > 0 {
+		i.opt.context.BuildTags = options.BuildTags
 	}
 
 	// AstDot activates AST graph display for the interpreter
@@ -237,8 +252,14 @@ func (interp *Interpreter) Eval(src string) (reflect.Value, error) {
 	}
 
 	// Global type analysis
-	if err = interp.gta(root, pkgName); err != nil {
+	revisit, err := interp.gta(root, pkgName)
+	if err != nil {
 		return res, err
+	}
+	for _, n := range revisit {
+		if _, err = interp.gta(n, pkgName); err != nil {
+			return res, err
+		}
 	}
 
 	// Annotate AST with CFG infos
@@ -258,7 +279,8 @@ func (interp *Interpreter) Eval(src string) (reflect.Value, error) {
 	}
 	if interp.universe.sym[pkgName] == nil {
 		// Make the package visible under a path identical to its name
-		interp.universe.sym[pkgName] = &symbol{typ: &itype{cat: srcPkgT}, path: pkgName}
+		interp.srcPkg[pkgName] = interp.scopes[pkgName].sym
+		interp.universe.sym[pkgName] = &symbol{kind: pkgSym, typ: &itype{cat: srcPkgT, path: pkgName}}
 	}
 
 	if interp.cfgDot {

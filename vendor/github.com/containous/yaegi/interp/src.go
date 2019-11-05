@@ -8,9 +8,13 @@ import (
 	"strings"
 )
 
-func (interp *Interpreter) importSrcFile(rPath, path, alias string) error {
+func (interp *Interpreter) importSrc(rPath, path, alias string) error {
 	var dir string
 	var err error
+
+	if interp.srcPkg[path] != nil {
+		return nil
+	}
 
 	// For relative import paths in the form "./xxx" or "../xxx", the initial
 	// base path is the directory of the interpreter input file, or "." if no file
@@ -22,9 +26,13 @@ func (interp *Interpreter) importSrcFile(rPath, path, alias string) error {
 			rPath = "."
 		}
 		dir = filepath.Join(filepath.Dir(interp.Name), rPath, path)
-	} else if dir, rPath, err = pkgDir(interp.goPath, rPath, path); err != nil {
+	} else if dir, rPath, err = pkgDir(interp.context.GOPATH, rPath, path); err != nil {
 		return err
 	}
+	if interp.rdir[path] {
+		return fmt.Errorf("import cycle not allowed\n\timports %s", path)
+	}
+	interp.rdir[path] = true
 
 	files, err := ioutil.ReadDir(dir)
 	if err != nil {
@@ -33,6 +41,7 @@ func (interp *Interpreter) importSrcFile(rPath, path, alias string) error {
 
 	var initNodes []*node
 	var rootNodes []*node
+	revisit := make(map[string][]*node)
 
 	var root *node
 	var pkgName string
@@ -40,7 +49,7 @@ func (interp *Interpreter) importSrcFile(rPath, path, alias string) error {
 	// Parse source files
 	for _, file := range files {
 		name := file.Name()
-		if skipFile(name) {
+		if skipFile(interp.context, name) {
 			continue
 		}
 
@@ -65,8 +74,20 @@ func (interp *Interpreter) importSrcFile(rPath, path, alias string) error {
 		rootNodes = append(rootNodes, root)
 
 		subRPath := effectivePkg(rPath, path)
-		if err = interp.gta(root, subRPath); err != nil {
+		var list []*node
+		list, err = interp.gta(root, subRPath)
+		if err != nil {
 			return err
+		}
+		revisit[subRPath] = append(revisit[subRPath], list...)
+	}
+
+	// revisit incomplete nodes where GTA could not complete
+	for pkg, nodes := range revisit {
+		for _, n := range nodes {
+			if _, err = interp.gta(n, pkg); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -78,6 +99,10 @@ func (interp *Interpreter) importSrcFile(rPath, path, alias string) error {
 		}
 		initNodes = append(initNodes, nodes...)
 	}
+
+	// Register source package in the interpreter. The package contains only
+	// the global symbols in the package scope.
+	interp.srcPkg[path] = interp.scopes[pkgName].sym
 
 	// Rename imported pkgName to alias if they are different
 	if pkgName != alias {
