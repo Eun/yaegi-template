@@ -306,3 +306,15 @@ func TestPanic(t *testing.T) {
 		t.Fatalf("expected Oh no, got %v", err)
 	}
 }
+
+func TestNoStartOrEnd(t *testing.T) {
+	template := MustNew(interp.Options{}, stdlib.Symbols)
+	template.StartTokens = []rune{}
+	template.EndTokens = []rune{}
+	template.MustParseString(`fmt.Printf(fmt.Sprintf("Hello %s", "World"))`)
+	var buf1 bytes.Buffer
+	template.MustExec(&buf1, nil)
+	if "Hello World" != buf1.String() {
+		t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+	}
+}

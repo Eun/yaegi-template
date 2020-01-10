@@ -1,7 +1,6 @@
 package interp
 
 import (
-	"path"
 	"reflect"
 )
 
@@ -31,6 +30,7 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 		case defineStmt:
 			var atyp *itype
 			if n.nleft+n.nright < len(n.child) {
+				// Type is declared explicitly in the assign expression.
 				if atyp, err = nodeType(interp, sc, n.child[n.nleft]); err != nil {
 					return false
 				}
@@ -126,7 +126,7 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 				name = n.child[0].ident
 			} else {
 				ipath = n.child[0].rval.String()
-				name = path.Base(ipath)
+				name = identifier.FindString(ipath)
 			}
 			// Try to import a binary package first, or a source package
 			if interp.binPkg[ipath] != nil {

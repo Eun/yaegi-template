@@ -16,6 +16,7 @@ import (
 	"fmt"
 
 	"github.com/containous/yaegi/interp"
+	"io/ioutil"
 )
 
 type Template struct {
@@ -86,7 +87,8 @@ func (t *Template) MustParseString(s string) *Template {
 }
 
 func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
-	// revert the reader if we can
+	// to execute a template multiple times we must be able to seek the reader back
+	// to the start, if we cannot seek back we fail
 	if t.consumedReader {
 		seek, ok := t.templateReader.(io.Seeker)
 		if !ok {
@@ -96,7 +98,19 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	}
 	t.consumedReader = true
 
+
+
+	if len(t.StartTokens) == 0 || len(t.EndTokens) == 0 {
+		code, err := ioutil.ReadAll(t.templateReader)
+		if err != nil {
+			return 0, fmt.Errorf("unable to read tempalte reader: %w", err)
+		}
+		return t.runCode(string(code), writer, context)
+	}
+
 	r := bufio.NewReader(t.templateReader)
+
+
 	total := 0
 	for {
 		n, rerr, werr := skipIdent(t.StartTokens, r, writer)

@@ -1,3 +1,3 @@
-# github.com/containous/yaegi v0.6.2
+# github.com/containous/yaegi v0.7.2
 github.com/containous/yaegi/interp
 github.com/containous/yaegi/stdlib

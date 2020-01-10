@@ -6,8 +6,10 @@ import (
 	"go/parser"
 	"go/scanner"
 	"go/token"
+	"math"
 	"reflect"
 	"strconv"
+	"sync/atomic"
 )
 
 // nkind defines the kind of AST, i.e. the grammar category
@@ -320,6 +322,7 @@ func (interp *Interpreter) firstToken(src string) token.Token {
 func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 	inRepl := name == ""
 	var inFunc bool
+	var mode parser.Mode
 
 	// Allow incremental parsing of declarations or statements, by inserting
 	// them in a pseudo file package or function. Those statements or
@@ -334,16 +337,20 @@ func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 			inFunc = true
 			src = "package main; func main() {" + src + "}"
 		}
+		// Parse comments in REPL mode, to allow tag setting
+		mode |= parser.ParseComments
 	}
 
-	if ok, err := interp.buildOk(interp.context, name, src); !ok || err != nil {
+	if ok, err := interp.buildOk(&interp.context, name, src); !ok || err != nil {
 		return "", nil, err // skip source not matching build constraints
 	}
 
-	f, err := parser.ParseFile(interp.fset, name, src, 0)
+	f, err := parser.ParseFile(interp.fset, name, src, mode)
 	if err != nil {
 		return "", nil, err
 	}
+
+	setYaegiTags(&interp.context, f.Comments)
 
 	var root *node
 	var anc astNode
@@ -351,9 +358,9 @@ func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 	var pkgName string
 
 	addChild := func(root **node, anc astNode, pos token.Pos, kind nkind, act action) *node {
-		interp.nindex++
 		var i interface{}
-		n := &node{anc: anc.node, interp: interp, index: interp.nindex, pos: pos, kind: kind, action: act, val: &i, gen: builtin[act]}
+		nindex := atomic.AddInt64(&interp.nindex, 1)
+		n := &node{anc: anc.node, interp: interp, index: nindex, pos: pos, kind: kind, action: act, val: &i, gen: builtin[act]}
 		n.start = n
 		if anc.node == nil {
 			*root = n
@@ -364,15 +371,15 @@ func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 				if len(ancAst.List)+len(ancAst.Body) == len(anc.node.child) {
 					// All case clause children are collected.
 					// Split children in condition and body nodes to desambiguify the AST.
-					interp.nindex++
-					body := &node{anc: anc.node, interp: interp, index: interp.nindex, pos: pos, kind: caseBody, action: aNop, val: &i, gen: nop}
+					nindex = atomic.AddInt64(&interp.nindex, 1)
+					body := &node{anc: anc.node, interp: interp, index: nindex, pos: pos, kind: caseBody, action: aNop, val: &i, gen: nop}
 
 					if ts := anc.node.anc.anc; ts.kind == typeSwitch && ts.child[1].action == aAssign {
 						// In type switch clause, if a switch guard is assigned, duplicate the switch guard symbol
 						// in each clause body, so a different guard type can be set in each clause
 						name := ts.child[1].child[0].ident
-						interp.nindex++
-						gn := &node{anc: body, interp: interp, ident: name, index: interp.nindex, pos: pos, kind: identExpr, action: aNop, val: &i, gen: nop}
+						nindex = atomic.AddInt64(&interp.nindex, 1)
+						gn := &node{anc: body, interp: interp, ident: name, index: nindex, pos: pos, kind: identExpr, action: aNop, val: &i, gen: nop}
 						body.child = append(body.child, gn)
 					}
 
@@ -459,7 +466,11 @@ func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 				n.rval = reflect.ValueOf(v)
 			case token.FLOAT:
 				v, _ := strconv.ParseFloat(a.Value, 64)
-				n.rval = reflect.ValueOf(v)
+				if math.Trunc(v) == v {
+					n.rval = reflect.ValueOf(int(v))
+				} else {
+					n.rval = reflect.ValueOf(v)
+				}
 			case token.IMAG:
 				v, _ := strconv.ParseFloat(a.Value[:len(a.Value)-1], 64)
 				n.rval = reflect.ValueOf(complex(0, v))
@@ -547,6 +558,9 @@ func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 
 		case *ast.CommClause:
 			st.push(addChild(&root, anc, pos, commClause, aNop), nod)
+
+		case *ast.CommentGroup:
+			return false
 
 		case *ast.CompositeLit:
 			st.push(addChild(&root, anc, pos, compositeLitExpr, aCompositeLit), nod)
@@ -839,9 +853,9 @@ func (s *nodestack) top() astNode {
 
 // dup returns a duplicated node subtree
 func (interp *Interpreter) dup(nod, anc *node) *node {
-	interp.nindex++
+	nindex := atomic.AddInt64(&interp.nindex, 1)
 	n := *nod
-	n.index = interp.nindex
+	n.index = nindex
 	n.anc = anc
 	n.start = &n
 	n.pos = anc.pos
