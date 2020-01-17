@@ -17,6 +17,8 @@ import (
 
 	"github.com/containous/yaegi/interp"
 	"io/ioutil"
+	"sync"
+	"golang.org/x/xerrors"
 )
 
 type Template struct {
@@ -28,6 +30,7 @@ type Template struct {
 	EndTokens      []rune
 	interp         *interp.Interpreter
 	outputBuffer   *bytes.Buffer
+	mu sync.Mutex
 }
 
 func New(options interp.Options, use ...interp.Exports) (*Template, error) {
@@ -48,6 +51,8 @@ func MustNew(options interp.Options, use ...interp.Exports) *Template {
 }
 
 func (t *Template) Parse(reader io.Reader) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	// maybe in the future we parse the template here
 	// for now we don't
 	t.templateReader = reader
@@ -87,6 +92,8 @@ func (t *Template) MustParseString(s string) *Template {
 }
 
 func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
 	// to execute a template multiple times we must be able to seek the reader back
 	// to the start, if we cannot seek back we fail
 	if t.consumedReader {
@@ -103,7 +110,7 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	if len(t.StartTokens) == 0 || len(t.EndTokens) == 0 {
 		code, err := ioutil.ReadAll(t.templateReader)
 		if err != nil {
-			return 0, fmt.Errorf("unable to read tempalte reader: %w", err)
+			return 0, xerrors.Errorf("unable to read template reader: %w", err)
 		}
 		return t.runCode(string(code), writer, context)
 	}
