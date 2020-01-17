@@ -12,10 +12,11 @@ import (
 
 	"reflect"
 
+	"fmt"
+	"strconv"
+
 	"github.com/containous/yaegi/interp"
 	"github.com/containous/yaegi/stdlib"
-	"strconv"
-	"fmt"
 )
 
 func equalError(a, b error) bool {
@@ -272,24 +273,29 @@ func TestMultiExec(t *testing.T) {
 	type MessageContext struct {
 		Message string
 	}
-	template := MustNew(interp.Options{}, stdlib.Symbols)
-	template.MustParseString(`<$fmt.Printf("Hello %s", context.Message)$>`)
+
+	var templates []*Template
+
+	for i := 0; i < 3; i++ {
+		t := MustNew(interp.Options{}, stdlib.Symbols)
+		t.MustParseString(`<$fmt.Printf("Hello ` + strconv.Itoa(i) + ` %s", context.Message)$>`)
+		templates = append(templates, t)
+	}
 
 	for i := 0; i < 1000; i++ {
 		t.Run(strconv.Itoa(i), func(t *testing.T) {
 			t.Parallel()
+			templateIndex := i % len(templates)
 			msg := MessageContext{Message: strconv.Itoa(i)}
-			expect := fmt.Sprintf("Hello %d", i)
+			expect := fmt.Sprintf("Hello %d %d", templateIndex, i)
 			var buf bytes.Buffer
-			template.MustExec(&buf, msg)
-			if  expect != buf.String() {
+			templates[templateIndex].MustExec(&buf, msg)
+			if expect != buf.String() {
 				t.Fatalf(`expected %s, got %#v`, expect, buf.String())
 			}
 		})
-
 	}
 }
-
 
 func TestFmtSprintf(t *testing.T) {
 	template := MustNew(interp.Options{}, stdlib.Symbols)
@@ -299,6 +305,14 @@ func TestFmtSprintf(t *testing.T) {
 	if "Hello World" != buf1.String() {
 		t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
 	}
+}
+
+func Test1(t *testing.T) {
+	template := MustNew(interp.Options{}, stdlib.Symbols)
+	template.MustParseString(`<$fmt.Printf("Hello World")$>`)
+	var buf1 bytes.Buffer
+	template.MustExec(&buf1, nil)
+	fmt.Println(buf1.String())
 }
 
 func TestPanic(t *testing.T) {

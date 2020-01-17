@@ -15,9 +15,10 @@ import (
 
 	"fmt"
 
-	"github.com/containous/yaegi/interp"
 	"io/ioutil"
 	"sync"
+
+	"github.com/containous/yaegi/interp"
 	"golang.org/x/xerrors"
 )
 
@@ -30,16 +31,28 @@ type Template struct {
 	EndTokens      []rune
 	interp         *interp.Interpreter
 	outputBuffer   *bytes.Buffer
-	mu sync.Mutex
+	mu             sync.Mutex
 }
 
 func New(options interp.Options, use ...interp.Exports) (*Template, error) {
-	return &Template{
+	t := &Template{
 		options:     options,
-		use:         use,
+		use:         make([]interp.Exports, len(use)),
 		StartTokens: []rune("<$"),
 		EndTokens:   []rune("$>"),
-	}, nil
+	}
+
+	// copy use so we can be sure not to modify them
+	for i := range use {
+		t.use[i] = make(interp.Exports)
+		for packageName, funcMap := range use[i] {
+			t.use[i][packageName] = make(map[string]reflect.Value)
+			for funcName, funcReference := range funcMap {
+				t.use[i][packageName][funcName] = funcReference
+			}
+		}
+	}
+	return t, nil
 }
 
 func MustNew(options interp.Options, use ...interp.Exports) *Template {
@@ -105,8 +118,6 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	}
 	t.consumedReader = true
 
-
-
 	if len(t.StartTokens) == 0 || len(t.EndTokens) == 0 {
 		code, err := ioutil.ReadAll(t.templateReader)
 		if err != nil {
@@ -116,7 +127,6 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	}
 
 	r := bufio.NewReader(t.templateReader)
-
 
 	total := 0
 	for {
