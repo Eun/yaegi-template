@@ -15,6 +15,11 @@ import (
 	"fmt"
 	"strconv"
 
+	"os"
+	"path/filepath"
+
+	"io/ioutil"
+
 	"github.com/containous/yaegi/interp"
 	"github.com/containous/yaegi/stdlib"
 )
@@ -130,12 +135,26 @@ func TestExecWithContext(t *testing.T) {
 			`Hello Yaegi (10)`,
 			nil,
 		},
-
 		{
 			"Map",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
 			`<$fmt.Printf("%d %s", context["Foo"], context["Bar"])$>`,
+			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
+			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
+			`10 Joe`,
+			nil,
+		},
+		{
+			"Package",
+			interp.Options{},
+			[]interp.Exports{stdlib.Symbols},
+			`<$
+package main
+func main() {
+fmt.Printf("%d %s", context["Foo"], context["Bar"])
+}
+$>`,
 			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
 			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
 			`10 Joe`,
@@ -264,7 +283,7 @@ func TestTemplate_MustParse(t *testing.T) {
 	if _, err := template.Exec(&buf, nil); err != nil {
 		t.Fatal("exec failed")
 	}
-	if "Hello Yaegi" != buf.String() {
+	if buf.String() != "Hello Yaegi" {
 		t.Fatalf(`expected "Hello Yaegi", got %#v`, buf.String())
 	}
 }
@@ -302,17 +321,9 @@ func TestFmtSprintf(t *testing.T) {
 	template.MustParseString(`<$fmt.Printf(fmt.Sprintf("Hello %s", "World"))$>`)
 	var buf1 bytes.Buffer
 	template.MustExec(&buf1, nil)
-	if "Hello World" != buf1.String() {
+	if buf1.String() != "Hello World" {
 		t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
 	}
-}
-
-func Test1(t *testing.T) {
-	template := MustNew(interp.Options{}, stdlib.Symbols)
-	template.MustParseString(`<$fmt.Printf("Hello World")$>`)
-	var buf1 bytes.Buffer
-	template.MustExec(&buf1, nil)
-	fmt.Println(buf1.String())
 }
 
 func TestPanic(t *testing.T) {
@@ -332,7 +343,186 @@ func TestNoStartOrEnd(t *testing.T) {
 	template.MustParseString(`fmt.Printf(fmt.Sprintf("Hello %s", "World"))`)
 	var buf1 bytes.Buffer
 	template.MustExec(&buf1, nil)
-	if "Hello World" != buf1.String() {
+	if buf1.String() != "Hello World" {
 		t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
 	}
+}
+
+func TestImport(t *testing.T) {
+	// create sample package
+	tmp, err := ioutil.TempDir("", "")
+	if err != nil {
+		t.Fatalf("unable to create temp dir: %v", err)
+	}
+	defer os.RemoveAll(tmp)
+
+	srcPath := filepath.Join(tmp, "src", "world")
+	if err = os.MkdirAll(srcPath, 0777); err != nil {
+		t.Fatalf("unable to create temp dir /src/world: %v", err)
+	}
+
+	err = ioutil.WriteFile(filepath.Join(srcPath, "world.go"), []byte(`
+package world
+func World() string {
+    return "World"
+}`), 0777)
+	if err != nil {
+		t.Fatalf("unable to create world.go: %v", err)
+	}
+
+	t.Run("simple", func(t *testing.T) {
+		template := MustNew(interp.Options{
+			GoPath: tmp,
+		}, stdlib.Symbols)
+		template.StartTokens = []rune{}
+		template.EndTokens = []rune{}
+		template.MustParseString(`
+import "world"
+fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
+
+		var buf1 bytes.Buffer
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+
+		buf1.Reset()
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+	})
+
+	t.Run("multi import", func(t *testing.T) {
+		template := MustNew(interp.Options{
+			GoPath: tmp,
+		}, stdlib.Symbols)
+		template.StartTokens = []rune{}
+		template.EndTokens = []rune{}
+		template.MustParseString(`
+import (
+"fmt"
+"world"
+)
+fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
+
+		var buf1 bytes.Buffer
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+
+		buf1.Reset()
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+	})
+
+	t.Run("multi import", func(t *testing.T) {
+		template := MustNew(interp.Options{
+			GoPath: tmp,
+		}, stdlib.Symbols)
+		template.StartTokens = []rune{}
+		template.EndTokens = []rune{}
+		template.MustParseString(`
+import (
+"fmt"
+)
+
+import (
+"world"
+)
+fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
+
+		var buf1 bytes.Buffer
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+
+		buf1.Reset()
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+	})
+
+	t.Run("alias import", func(t *testing.T) {
+		template := MustNew(interp.Options{
+			GoPath: tmp,
+		}, stdlib.Symbols)
+		template.StartTokens = []rune{}
+		template.EndTokens = []rune{}
+		template.MustParseString(`
+import (
+"fmt"
+w "world"
+)
+fmt.Printf(fmt.Sprintf("Hello %s", w.World()))`)
+
+		var buf1 bytes.Buffer
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+
+		buf1.Reset()
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+	})
+
+	t.Run("alias dot import", func(t *testing.T) {
+		template := MustNew(interp.Options{
+			GoPath: tmp,
+		}, stdlib.Symbols)
+		template.StartTokens = []rune{}
+		template.EndTokens = []rune{}
+		template.MustParseString(`
+import (
+"fmt"
+. "world"
+)
+fmt.Printf(fmt.Sprintf("Hello %s", World()))`)
+
+		var buf1 bytes.Buffer
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+
+		buf1.Reset()
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+	})
+
+	t.Run("package", func(t *testing.T) {
+		template := MustNew(interp.Options{
+			GoPath: tmp,
+		}, stdlib.Symbols)
+		template.StartTokens = []rune{}
+		template.EndTokens = []rune{}
+		template.MustParseString(`
+package main
+import "world"
+func main() {
+fmt.Printf(fmt.Sprintf("Hello %s", world.World()))
+}`)
+
+		var buf1 bytes.Buffer
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+
+		buf1.Reset()
+		template.MustExec(&buf1, nil)
+		if buf1.String() != "Hello World" {
+			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
+		}
+	})
 }
