@@ -10,7 +10,6 @@ jobs:
           entrypoint: /bin/golangci-lint-runner
           args: standalone
         env:
-          APPROVE: false
-          REQUEST_CHANGES: false
+          APPROVE: true
+          REQUEST_CHANGES: true
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
-          DEBUG: true
