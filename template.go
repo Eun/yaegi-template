@@ -2,6 +2,7 @@ package yaegi_template
 
 import (
 	"io"
+	"strings"
 
 	"reflect"
 
@@ -17,6 +18,13 @@ import (
 
 	"io/ioutil"
 	"sync"
+
+	"go/parser"
+	"go/scanner"
+	"go/token"
+
+	"go/ast"
+	"go/printer"
 
 	"github.com/containous/yaegi/interp"
 	"golang.org/x/xerrors"
@@ -249,6 +257,17 @@ func (t *Template) runCode(code string, out io.Writer, context interface{}) (int
 }
 
 func (t *Template) evalCode(code string) (err error) {
+	var ok bool
+	ok, err = t.hasPackage(code)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		if err = t.evalImports(&code); err != nil {
+			return err
+		}
+	}
+
 	defer func() {
 		e := recover()
 		if e == nil {
@@ -267,6 +286,62 @@ func (t *Template) evalCode(code string) (err error) {
 		return err
 	}
 	return err
+}
+
+// evalImports finds all "import" lines evaluates them and removes them from the code
+func (t *Template) evalImports(code *string) error {
+	c := "package main\n" + *code
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "", c, parser.ImportsOnly)
+	if err != nil {
+		return err
+	}
+
+	var buf bytes.Buffer
+	for _, decl := range f.Decls {
+		genDecl, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		if genDecl.Tok != token.IMPORT {
+			continue
+		}
+		buf.Reset()
+		if err = printer.Fprint(&buf, fset, genDecl); err != nil {
+			return err
+		}
+		_, err = t.interp.Eval(buf.String())
+		if err != nil {
+			return err
+		}
+		pos := int(genDecl.Pos()) - 1
+		end := int(genDecl.End()) - 1
+		c = c[:pos] + strings.Repeat(" ", end-pos) + c[end:]
+	}
+
+	// remove package main\n
+	*code = c[13:]
+
+	return nil
+}
+
+// hasPackage returns true when the code has a 'package' line
+func (*Template) hasPackage(s string) (bool, error) {
+	_, err := parser.ParseFile(token.NewFileSet(), "", s, parser.PackageClauseOnly)
+	if err != nil {
+		errList, ok := err.(scanner.ErrorList)
+		if !ok {
+			return false, err
+		}
+		if len(errList) <= 0 {
+			return false, err
+		}
+		if !strings.HasPrefix(errList[0].Msg, fmt.Sprintf("expected '%s', found", token.PACKAGE)) {
+			return false, err
+		}
+		return false, nil
+	}
+	return true, nil
 }
 
 func (t *Template) hijackOs() {
