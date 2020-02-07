@@ -24,6 +24,7 @@ var builtin = [...]bltnGenerator{
 	aAndAssign:    andAssign,
 	aAndNot:       andNot,
 	aAndNotAssign: andNotAssign,
+	aBitNot:       bitNot,
 	aCall:         call,
 	aCase:         _case,
 	aCompositeLit: arrayLit,
@@ -40,11 +41,12 @@ var builtin = [...]bltnGenerator{
 	aLowerEqual:   lowerEqual,
 	aMul:          mul,
 	aMulAssign:    mulAssign,
-	aNegate:       negate,
+	aNeg:          neg,
 	aNot:          not,
 	aNotEqual:     notEqual,
 	aOr:           or,
 	aOrAssign:     orAssign,
+	aPos:          pos,
 	aQuo:          quo,
 	aQuoAssign:    quoAssign,
 	aRange:        _range,
@@ -340,21 +342,24 @@ func assign(n *node) {
 }
 
 func not(n *node) {
+	dest := genValue(n)
 	value := genValue(n.child[0])
 	tnext := getExec(n.tnext)
+	i := n.findex
 
 	if n.fnext != nil {
 		fnext := getExec(n.fnext)
 		n.exec = func(f *frame) bltn {
 			if !value(f).Bool() {
+				f.data[i].SetBool(true)
 				return tnext
 			}
+			f.data[i].SetBool(false)
 			return fnext
 		}
 	} else {
-		i := n.findex
 		n.exec = func(f *frame) bltn {
-			f.data[i].SetBool(!value(f).Bool())
+			dest(f).SetBool(!value(f).Bool())
 			return tnext
 		}
 	}
@@ -658,7 +663,7 @@ func call(n *node) {
 				values = append(values, func(f *frame) reflect.Value { return f.data[ind] })
 			}
 		default:
-			if c.kind == basicLit {
+			if c.kind == basicLit || c.rval.IsValid() {
 				var argType reflect.Type
 				if variadic >= 0 && i >= variadic {
 					argType = n.child[0].typ.arg[variadic].val.TypeOf()
@@ -843,7 +848,7 @@ func callBin(n *node) {
 				values = append(values, func(f *frame) reflect.Value { return f.data[ind] })
 			}
 		default:
-			if c.kind == basicLit {
+			if c.kind == basicLit || c.rval.IsValid() {
 				// Convert literal value (untyped) to function argument type (if not an interface{})
 				var argType reflect.Type
 				if variadic >= 0 && i >= variadic {
@@ -1246,7 +1251,7 @@ func getIndexSeqMethod(n *node) {
 	}
 }
 
-func negate(n *node) {
+func neg(n *node) {
 	dest := genValue(n)
 	value := genValue(n.child[0])
 	next := getExec(n.tnext)
@@ -1265,6 +1270,37 @@ func negate(n *node) {
 	case reflect.Complex64, reflect.Complex128:
 		n.exec = func(f *frame) bltn {
 			dest(f).SetComplex(-value(f).Complex())
+			return next
+		}
+	}
+}
+
+func pos(n *node) {
+	dest := genValue(n)
+	value := genValue(n.child[0])
+	next := getExec(n.tnext)
+
+	n.exec = func(f *frame) bltn {
+		dest(f).Set(value(f))
+		return next
+	}
+}
+
+func bitNot(n *node) {
+	dest := genValue(n)
+	value := genValue(n.child[0])
+	next := getExec(n.tnext)
+	typ := n.typ.TypeOf()
+
+	switch typ.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		n.exec = func(f *frame) bltn {
+			dest(f).SetInt(^value(f).Int())
+			return next
+		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		n.exec = func(f *frame) bltn {
+			dest(f).SetUint(^value(f).Uint())
 			return next
 		}
 	}
@@ -1946,7 +1982,7 @@ func _close(n *node) {
 }
 
 func _complex(n *node) {
-	i := n.findex
+	dest := genValue(n)
 	c1, c2 := n.child[1], n.child[2]
 	convertLiteralValue(c1, floatType)
 	convertLiteralValue(c2, floatType)
@@ -1956,38 +1992,38 @@ func _complex(n *node) {
 
 	if typ := n.typ.TypeOf(); isComplex(typ) {
 		n.exec = func(f *frame) bltn {
-			f.data[i].SetComplex(complex(value0(f).Float(), value1(f).Float()))
+			dest(f).SetComplex(complex(value0(f).Float(), value1(f).Float()))
 			return next
 		}
 	} else {
 		// Not a complex type: ignore imaginary part
 		n.exec = func(f *frame) bltn {
-			f.data[i].Set(value0(f).Convert(typ))
+			dest(f).Set(value0(f).Convert(typ))
 			return next
 		}
 	}
 }
 
 func _imag(n *node) {
-	i := n.findex
+	dest := genValue(n)
 	convertLiteralValue(n.child[1], complexType)
 	value := genValue(n.child[1])
 	next := getExec(n.tnext)
 
 	n.exec = func(f *frame) bltn {
-		f.data[i].SetFloat(imag(value(f).Complex()))
+		dest(f).SetFloat(imag(value(f).Complex()))
 		return next
 	}
 }
 
 func _real(n *node) {
-	i := n.findex
+	dest := genValue(n)
 	convertLiteralValue(n.child[1], complexType)
 	value := genValue(n.child[1])
 	next := getExec(n.tnext)
 
 	n.exec = func(f *frame) bltn {
-		f.data[i].SetFloat(real(value(f).Complex()))
+		dest(f).SetFloat(real(value(f).Complex()))
 		return next
 	}
 }
@@ -2005,12 +2041,12 @@ func _delete(n *node) {
 }
 
 func _len(n *node) {
-	i := n.findex
+	dest := genValue(n)
 	value := genValue(n.child[1])
 	next := getExec(n.tnext)
 
 	n.exec = func(f *frame) bltn {
-		f.data[i].SetInt(int64(value(f).Len()))
+		dest(f).SetInt(int64(value(f).Len()))
 		return next
 	}
 }
@@ -2222,13 +2258,16 @@ func recv2(n *node) {
 }
 
 func convertLiteralValue(n *node, t reflect.Type) {
-	if n.kind != basicLit || t == nil || t.Kind() == reflect.Interface {
+	// Skip non-constant values, undefined target type or interface target type.
+	if !(n.kind == basicLit || n.rval.IsValid()) || t == nil || t.Kind() == reflect.Interface {
 		return
 	}
 	if n.rval.IsValid() {
+		// Convert constant value to target type.
 		n.rval = n.rval.Convert(t)
 	} else {
-		n.rval = reflect.New(t).Elem() // convert to type nil value
+		// Create a zero value of target type.
+		n.rval = reflect.New(t).Elem()
 	}
 }
 
@@ -2420,19 +2459,21 @@ func isNil(n *node) {
 		value = genValue(n.child[0])
 	}
 	tnext := getExec(n.tnext)
+	dest := genValue(n)
 
 	if n.fnext != nil {
 		fnext := getExec(n.fnext)
 		n.exec = func(f *frame) bltn {
 			if value(f).IsNil() {
+				dest(f).SetBool(true)
 				return tnext
 			}
+			dest(f).SetBool(false)
 			return fnext
 		}
 	} else {
-		i := n.findex
 		n.exec = func(f *frame) bltn {
-			f.data[i].SetBool(value(f).IsNil())
+			dest(f).SetBool(value(f).IsNil())
 			return tnext
 		}
 	}
@@ -2446,19 +2487,21 @@ func isNotNil(n *node) {
 		value = genValue(n.child[0])
 	}
 	tnext := getExec(n.tnext)
+	dest := genValue(n)
 
 	if n.fnext != nil {
 		fnext := getExec(n.fnext)
 		n.exec = func(f *frame) bltn {
 			if value(f).IsNil() {
+				dest(f).SetBool(false)
 				return fnext
 			}
+			dest(f).SetBool(true)
 			return tnext
 		}
 	} else {
-		i := n.findex
 		n.exec = func(f *frame) bltn {
-			f.data[i].SetBool(!value(f).IsNil())
+			dest(f).SetBool(!value(f).IsNil())
 			return tnext
 		}
 	}
