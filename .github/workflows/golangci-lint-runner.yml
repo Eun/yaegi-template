@@ -13,3 +13,4 @@ jobs:
           APPROVE: false
           REQUEST_CHANGES: false
           GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"
+          DEBUG: true
