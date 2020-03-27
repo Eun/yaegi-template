@@ -90,9 +90,6 @@ func genValue(n *node) func(*frame) reflect.Value {
 			v = reflect.ValueOf(n.val)
 		}
 		return func(f *frame) reflect.Value { return v }
-	case rvalueExpr:
-		v := n.rval
-		return func(f *frame) reflect.Value { return v }
 	default:
 		if n.rval.IsValid() {
 			v := n.rval
@@ -167,7 +164,7 @@ func genValueInterface(n *node) func(*frame) reflect.Value {
 	return func(f *frame) reflect.Value {
 		v := value(f)
 		nod := n
-		for {
+		for v.IsValid() {
 			// traverse interface indirections to find out concrete type
 			vi, ok := v.Interface().(valueInterface)
 			if !ok {
@@ -180,11 +177,23 @@ func genValueInterface(n *node) func(*frame) reflect.Value {
 	}
 }
 
+func zeroInterfaceValue() reflect.Value {
+	n := &node{kind: basicLit, typ: &itype{cat: nilT, untyped: true}}
+	v := reflect.New(reflect.TypeOf((*interface{})(nil)).Elem()).Elem()
+	return reflect.ValueOf(valueInterface{n, v})
+}
+
 func genValueInterfaceValue(n *node) func(*frame) reflect.Value {
 	value := genValue(n)
 
 	return func(f *frame) reflect.Value {
-		return value(f).Interface().(valueInterface).value
+		v := value(f)
+		if v.Interface().(valueInterface).node == nil {
+			// Uninitialized interface value, set it to a correct zero value.
+			v.Set(zeroInterfaceValue())
+			v = value(f)
+		}
+		return v.Interface().(valueInterface).value
 	}
 }
 

@@ -1,6 +1,4 @@
-# github.com/containous/yaegi v0.7.4
+# github.com/containous/yaegi v0.8.1
+## explicit
 github.com/containous/yaegi/interp
 github.com/containous/yaegi/stdlib
-# golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543
-golang.org/x/xerrors
-golang.org/x/xerrors/internal

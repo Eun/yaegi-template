@@ -75,8 +75,6 @@ const (
 	parenExpr
 	rangeStmt
 	returnStmt
-	rvalueExpr
-	rtypeExpr
 	selectStmt
 	selectorExpr
 	selectorImport
@@ -154,8 +152,6 @@ var kinds = [...]string{
 	parenExpr:        "parenExpr",
 	rangeStmt:        "rangeStmt",
 	returnStmt:       "returnStmt",
-	rvalueExpr:       "rvalueExpr",
-	rtypeExpr:        "rtypeExpr",
 	selectStmt:       "selectStmt",
 	selectorExpr:     "selectorExpr",
 	selectorImport:   "selectorImport",
@@ -204,7 +200,6 @@ const (
 	aCase
 	aCompositeLit
 	aDec
-	aDefer
 	aEqual
 	aGreater
 	aGreaterEqual
@@ -262,7 +257,6 @@ var actions = [...]string{
 	aCase:         "case",
 	aCompositeLit: "compositeLit",
 	aDec:          "--",
-	aDefer:        "defer",
 	aEqual:        "==",
 	aGreater:      ">",
 	aGetFunc:      "getFunc",
@@ -573,7 +567,7 @@ func (interp *Interpreter) ast(src, name string) (string, *node, error) {
 			st.push(addChild(&root, anc, pos, declStmt, aNop), nod)
 
 		case *ast.DeferStmt:
-			st.push(addChild(&root, anc, pos, deferStmt, aDefer), nod)
+			st.push(addChild(&root, anc, pos, deferStmt, aNop), nod)
 
 		case *ast.Ellipsis:
 			st.push(addChild(&root, anc, pos, ellipsisExpr, aNop), nod)

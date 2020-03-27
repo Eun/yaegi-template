@@ -27,7 +27,6 @@ import (
 	"go/printer"
 
 	"github.com/containous/yaegi/interp"
-	"golang.org/x/xerrors"
 )
 
 type Template struct {
@@ -129,7 +128,7 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	if len(t.StartTokens) == 0 || len(t.EndTokens) == 0 {
 		code, err := ioutil.ReadAll(t.templateReader)
 		if err != nil {
-			return 0, xerrors.Errorf("unable to read template reader: %w", err)
+			return 0, fmt.Errorf("unable to read template reader: %w", err)
 		}
 		return t.runCode(string(code), writer, context)
 	}

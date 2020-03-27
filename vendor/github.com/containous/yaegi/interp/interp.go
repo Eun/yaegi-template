@@ -11,6 +11,8 @@ import (
 	"os"
 	"os/signal"
 	"reflect"
+	"runtime"
+	"runtime/debug"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -158,6 +160,24 @@ type _error struct {
 
 func (w _error) Error() string { return w.WError() }
 
+// Panic is an error recovered from a panic call in interpreted code.
+type Panic struct {
+	// Value is the recovered value of a call to panic.
+	Value interface{}
+
+	// Callers is the call stack obtained from the recover call.
+	// It may be used as the parameter to runtime.CallersFrames.
+	Callers []uintptr
+
+	// Stack is the call stack buffer for debug.
+	Stack []byte
+}
+
+// TODO: Capture interpreter stack frames also and remove
+// fmt.Println(n.cfgErrorf("panic")) in runCfg.
+
+func (e Panic) Error() string { return fmt.Sprint(e.Value) }
+
 // Walk traverses AST n in depth first order, call cbin function
 // at node entry and cbout function at node exit.
 func (n *node) Walk(in func(n *node) bool, out func(n *node)) {
@@ -216,7 +236,7 @@ func initUniverse() *scope {
 	sc := &scope{global: true, sym: map[string]*symbol{
 		// predefined Go types
 		"bool":        {kind: typeSym, typ: &itype{cat: boolT, name: "bool"}},
-		"byte":        {kind: typeSym, typ: &itype{cat: byteT, name: "byte"}},
+		"byte":        {kind: typeSym, typ: &itype{cat: uint8T, name: "uint8"}},
 		"complex64":   {kind: typeSym, typ: &itype{cat: complex64T, name: "complex64"}},
 		"complex128":  {kind: typeSym, typ: &itype{cat: complex128T, name: "complex128"}},
 		"error":       {kind: typeSym, typ: &itype{cat: errorT, name: "error"}},
@@ -228,7 +248,7 @@ func initUniverse() *scope {
 		"int32":       {kind: typeSym, typ: &itype{cat: int32T, name: "int32"}},
 		"int64":       {kind: typeSym, typ: &itype{cat: int64T, name: "int64"}},
 		"interface{}": {kind: typeSym, typ: &itype{cat: interfaceT}},
-		"rune":        {kind: typeSym, typ: &itype{cat: runeT, name: "rune"}},
+		"rune":        {kind: typeSym, typ: &itype{cat: int32T, name: "int32"}},
 		"string":      {kind: typeSym, typ: &itype{cat: stringT, name: "string"}},
 		"uint":        {kind: typeSym, typ: &itype{cat: uintT, name: "uint"}},
 		"uint8":       {kind: typeSym, typ: &itype{cat: uint8T, name: "uint8"}},
@@ -283,7 +303,7 @@ func (interp *Interpreter) resizeFrame() {
 func (interp *Interpreter) main() *node {
 	interp.mutex.RLock()
 	defer interp.mutex.RUnlock()
-	if m, ok := interp.scopes[mainID]; ok && m.sym[mainID] != nil {
+	if m, ok := interp.scopes[interp.Name]; ok && m.sym[mainID] != nil {
 		return m.sym[mainID].node
 	}
 	return nil
@@ -291,10 +311,17 @@ func (interp *Interpreter) main() *node {
 
 // Eval evaluates Go code represented as a string. It returns a map on
 // current interpreted package exported symbols
-func (interp *Interpreter) Eval(src string) (reflect.Value, error) {
-	var res reflect.Value
+func (interp *Interpreter) Eval(src string) (res reflect.Value, err error) {
+	defer func() {
+		r := recover()
+		if r != nil {
+			var pc [64]uintptr // 64 frames should be enough.
+			n := runtime.Callers(1, pc[:])
+			err = Panic{Value: r, Callers: pc[:n], Stack: debug.Stack()}
+		}
+	}()
 
-	// Parse source to AST
+	// Parse source to AST.
 	pkgName, root, err := interp.ast(src, interp.Name)
 	if err != nil || root == nil {
 		return res, err
@@ -307,19 +334,13 @@ func (interp *Interpreter) Eval(src string) (reflect.Value, error) {
 		}
 	}
 
-	// Global type analysis
-	revisit, err := interp.gta(root, pkgName)
-	if err != nil {
+	// Perform global types analysis.
+	if err = interp.gtaRetry([]*node{root}, pkgName, interp.Name); err != nil {
 		return res, err
-	}
-	for _, n := range revisit {
-		if _, err = interp.gta(n, pkgName); err != nil {
-			return res, err
-		}
 	}
 
 	// Annotate AST with CFG infos
-	initNodes, err := interp.cfg(root)
+	initNodes, err := interp.cfg(root, interp.Name)
 	if err != nil {
 		return res, err
 	}
@@ -336,7 +357,7 @@ func (interp *Interpreter) Eval(src string) (reflect.Value, error) {
 	interp.mutex.Lock()
 	if interp.universe.sym[pkgName] == nil {
 		// Make the package visible under a path identical to its name
-		interp.srcPkg[pkgName] = interp.scopes[pkgName].sym
+		interp.srcPkg[pkgName] = interp.scopes[interp.Name].sym
 		interp.universe.sym[pkgName] = &symbol{kind: pkgSym, typ: &itype{cat: srcPkgT, path: pkgName}}
 	}
 	interp.mutex.Unlock()
@@ -446,12 +467,15 @@ func (interp *Interpreter) REPL(in io.Reader, out io.Writer) {
 		v, err := interp.EvalWithContext(ctx, src)
 		signal.Reset()
 		if err != nil {
-			switch err.(type) {
+			switch e := err.(type) {
 			case scanner.ErrorList:
 				// Early failure in the scanner: the source is incomplete
 				// and no AST could be produced, neither compiled / run.
 				// Get one more line, and retry
 				continue
+			case Panic:
+				fmt.Fprintln(out, e.Value)
+				fmt.Fprintln(out, string(e.Stack))
 			default:
 				fmt.Fprintln(out, err)
 			}

@@ -1,15 +1,13 @@
 package interp
 
-import (
-	"reflect"
-)
+import "reflect"
 
 // gta performs a global types analysis on the AST, registering types,
 // variables and functions symbols at package level, prior to CFG.
 // All function bodies are skipped. GTA is necessary to handle out of
 // order declarations and multiple source files packages.
-func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
-	sc, _ := interp.initScopePkg(root)
+func (interp *Interpreter) gta(root *node, rpath, pkgID string) ([]*node, error) {
+	sc := interp.initScopePkg(pkgID)
 	var err error
 	var iotaValue int
 	var revisit []*node
@@ -21,6 +19,12 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 		switch n.kind {
 		case constDecl:
 			iotaValue = 0
+			// Early parse of constDecl subtree, to compute all constant
+			// values which may be necessary in further declarations.
+			if _, err = interp.cfg(n, pkgID); err != nil {
+				// No error processing here, to allow recovery in subtree nodes.
+				err = nil
+			}
 
 		case blockStmt:
 			if n != root {
@@ -44,6 +48,14 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 			for i := 0; i < n.nleft; i++ {
 				dest, src := n.child[i], n.child[sbase+i]
 				val := reflect.ValueOf(iotaValue)
+				if n.anc.kind == constDecl {
+					if _, err2 := interp.cfg(n, pkgID); err2 != nil {
+						// Constant value can not be computed yet.
+						// Come back when child dependencies are known.
+						revisit = append(revisit, n)
+						return false
+					}
+				}
 				typ := atyp
 				if typ == nil {
 					if typ, err = nodeType(interp, sc, src); err != nil {
@@ -52,7 +64,7 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 					val = src.rval
 				}
 				if typ.incomplete {
-					// Come back when type is known
+					// Come back when type is known.
 					revisit = append(revisit, n)
 					return false
 				}
@@ -60,7 +72,12 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 					err = n.cfgErrorf("use of untyped nil")
 					return false
 				}
-				sc.sym[dest.ident] = &symbol{kind: varSym, global: true, index: sc.add(typ), typ: typ, rval: val}
+				if typ.isBinMethod {
+					typ = &itype{cat: valueT, rtype: typ.methodCallType(), isBinMethod: true}
+				}
+				if sc.sym[dest.ident] == nil {
+					sc.sym[dest.ident] = &symbol{kind: varSym, global: true, index: sc.add(typ), typ: typ, rval: val}
+				}
 				if n.anc.kind == constDecl {
 					sc.sym[dest.ident].kind = constSym
 					iotaValue++
@@ -75,6 +92,11 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 			l := len(n.child) - 1
 			if n.typ = n.child[l].typ; n.typ == nil {
 				if n.typ, err = nodeType(interp, sc, n.child[l]); err != nil {
+					return false
+				}
+				if n.typ.incomplete {
+					// Come back when type is known.
+					revisit = append(revisit, n)
 					return false
 				}
 			}
@@ -117,6 +139,9 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 				// Add a function symbol in the package name space
 				sc.sym[n.child[1].ident] = &symbol{kind: funcSym, typ: n.typ, node: n, index: -1}
 			}
+			if n.typ.incomplete {
+				revisit = append(revisit, n)
+			}
 			return false
 
 		case importSpec:
@@ -143,7 +168,7 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 				default: // import symbols in package namespace
 					sc.sym[name] = &symbol{kind: pkgSym, typ: &itype{cat: binPkgT, path: ipath}}
 				}
-			} else if err = interp.importSrc(rpath, ipath, name); err == nil {
+			} else if err = interp.importSrc(rpath, ipath); err == nil {
 				sc.types = interp.universe.types
 				switch name {
 				case "_": // no import of symbols
@@ -193,4 +218,43 @@ func (interp *Interpreter) gta(root *node, rpath string) ([]*node, error) {
 		sc.pop()
 	}
 	return revisit, err
+}
+
+// gtaRetry (re)applies gta until all global constants and types are defined.
+func (interp *Interpreter) gtaRetry(nodes []*node, rpath, pkgID string) error {
+	revisit := []*node{}
+	for {
+		for _, n := range nodes {
+			list, err := interp.gta(n, rpath, pkgID)
+			if err != nil {
+				return err
+			}
+			revisit = append(revisit, list...)
+		}
+
+		if len(revisit) == 0 || equalNodes(nodes, revisit) {
+			break
+		}
+
+		nodes = revisit
+		revisit = []*node{}
+	}
+
+	if len(revisit) > 0 {
+		return revisit[0].cfgErrorf("constant definition loop")
+	}
+	return nil
+}
+
+// equalNodes returns true if two slices of nodes are identical.
+func equalNodes(a, b []*node) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i, n := range a {
+		if n != b[i] {
+			return false
+		}
+	}
+	return true
 }

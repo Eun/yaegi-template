@@ -1,4 +1,4 @@
 github.com/containous/yaegi v0.7.4 h1:mdEQypyfFlnCvKci+kaPKvIb3CilkkN0ivd9rug+sKA=
 github.com/containous/yaegi v0.7.4/go.mod h1:Yj82MHpXQ9/h3ukzc2numJQ/Wr4+M3C9YLMzNjFtd3o=
-golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543 h1:E7g+9GITq07hpfrRu66IVDexMakfv52eLZ2CXBWiKr4=
-golang.org/x/xerrors v0.0.0-20191204190536-9bdfabe68543/go.mod h1:I/5z698sn9Ka8TeJc9MKroUUfqBBauWjQqLJ2OPfmY0=
+github.com/containous/yaegi v0.8.1 h1:MYf4NuROUpNkcFBeRQ8qu4M34fRXNP7GCxTEVgcSrr0=
+github.com/containous/yaegi v0.8.1/go.mod h1:Yj82MHpXQ9/h3ukzc2numJQ/Wr4+M3C9YLMzNjFtd3o=
