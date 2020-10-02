@@ -89,11 +89,15 @@ func TestExec(t *testing.T) {
 		t.Run(test.Name, func(t *testing.T) {
 			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
 			var buf bytes.Buffer
-			if _, err := template.Exec(&buf, nil); !equalError(test.ExpectError, err) {
+			n, err := template.Exec(&buf, nil)
+			if !equalError(test.ExpectError, err) {
 				t.Fatalf("expected %#v, got %#v", test.ExpectError, err.Error())
 			}
 			if test.ExpectBuffer != buf.String() {
 				t.Fatalf("expected %#v, got %#v", test.ExpectBuffer, buf.String())
+			}
+			if l := len(test.ExpectBuffer); l != n {
+				t.Fatalf("expected %d, got %d", l, n)
 			}
 		})
 	}
@@ -182,7 +186,8 @@ $>`,
 		t.Run(test.Name, func(t *testing.T) {
 			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
 			var buf bytes.Buffer
-			if _, err := template.Exec(&buf, test.ContextRun1); !equalError(test.ExpectError, err) {
+			n, err := template.Exec(&buf, test.ContextRun1)
+			if !equalError(test.ExpectError, err) {
 				t.Fatalf("expected %#v, got %#v", test.ExpectError, err)
 			}
 			if test.ExpectBufferRun1 != buf.String() {
@@ -192,9 +197,14 @@ $>`,
 				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun1, test.ContextRun1)
 			}
 
+			if l := len(test.ExpectBufferRun1); l != n {
+				t.Fatalf("expected %d, got %d", l, n)
+			}
+
 			// run again with the second context
 			buf.Reset()
-			if _, err := template.Exec(&buf, test.ContextRun2); !equalError(test.ExpectError, err) {
+			n, err = template.Exec(&buf, test.ContextRun2)
+			if !equalError(test.ExpectError, err) {
 				t.Fatalf("expected %#v, got %#v", test.ExpectError, err)
 			}
 			if test.ExpectBufferRun2 != buf.String() {
@@ -202,6 +212,10 @@ $>`,
 			}
 			if !reflect.DeepEqual(test.ExpectContextAfterRun2, test.ContextRun2) {
 				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun2, test.ContextRun2)
+			}
+
+			if l := len(test.ExpectBufferRun2); l != n {
+				t.Fatalf("expected %d, got %d", l, n)
 			}
 		})
 	}

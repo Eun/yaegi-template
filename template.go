@@ -157,7 +157,7 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 
 		var codeBuffer bytes.Buffer
 
-		n, rerr, werr = skipIdent(t.EndTokens, r, &codeBuffer) //nolint:ineffassign // false positive
+		_, rerr, werr = skipIdent(t.EndTokens, r, &codeBuffer)
 		if rerr != nil {
 			if rerr == io.EOF {
 				return total, nil
