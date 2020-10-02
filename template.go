@@ -41,7 +41,9 @@ type Template struct {
 	mu             sync.Mutex
 }
 
-func New(options interp.Options, use ...interp.Exports) (*Template, error) {
+func New(
+	options interp.Options, //nolint:gocritic // disable hugeParam: options is heavy
+	use ...interp.Exports) (*Template, error) {
 	t := &Template{
 		options:     options,
 		use:         make([]interp.Exports, len(use)),
@@ -62,7 +64,9 @@ func New(options interp.Options, use ...interp.Exports) (*Template, error) {
 	return t, nil
 }
 
-func MustNew(options interp.Options, use ...interp.Exports) *Template {
+func MustNew(
+	options interp.Options, //nolint:gocritic // disable hugeParam: options is heavy
+	use ...interp.Exports) *Template {
 	t, err := New(options, use...)
 	if err != nil {
 		panic(err.Error())
@@ -184,6 +188,7 @@ type RuneReader interface {
 
 // skipIdent finds the code path to run.
 // this probably needs refactoring
+//nolint:gocognit // needs refactoring
 func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, error) {
 	var buf bytes.Buffer
 	i := 0
