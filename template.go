@@ -358,7 +358,7 @@ func (*Template) hasPackage(s string) (bool, error) {
 		if !ok {
 			return false, err
 		}
-		if len(errList) <= 0 {
+		if len(errList) == 0 {
 			return false, err
 		}
 		if !strings.HasPrefix(errList[0].Msg, fmt.Sprintf("expected '%s', found", token.PACKAGE)) {
