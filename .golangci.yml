@@ -194,6 +194,7 @@ issues:
         - gosec
         - funlen
         - goconst
+        - scopelint
     - text: don't use an underscore in package name
       linters:
         - golint
