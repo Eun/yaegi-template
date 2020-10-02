@@ -188,6 +188,7 @@ issues:
         - dupl
         - gosec
         - funlen
+        - goconst
 
 
 # golangci.com configuration
