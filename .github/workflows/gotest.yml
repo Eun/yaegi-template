@@ -15,4 +15,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
       - name: Test
-        run: go test ./...
+        run: go test -coverprofile=coverage.${{ matrix.platform }}-${{ matrix.go-version }}.txt -covermode=atomic ./...
+
+    - uses: codecov/codecov-action@v1
+      with:
+        file: coverage.${{ matrix.platform }}-${{ matrix.go-version }}.txt
+        name: codecov-${{ matrix.platform }}-${{ matrix.go-version }}
+        fail_ci_if_error: true
