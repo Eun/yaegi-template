@@ -328,8 +328,8 @@ func TestMultiExec(t *testing.T) {
 		templates = append(templates, t)
 	}
 
-	for i := 0; i < 1000; i++ {
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
+	run := func(i int) func(t *testing.T) {
+		return func(t *testing.T) {
 			t.Parallel()
 			templateIndex := i % len(templates)
 			msg := MessageContext{Message: strconv.Itoa(i)}
@@ -339,7 +339,11 @@ func TestMultiExec(t *testing.T) {
 			if expect != buf.String() {
 				t.Fatalf(`expected %s, got %#v`, expect, buf.String())
 			}
-		})
+		}
+	}
+
+	for i := 0; i < 1000; i++ {
+		t.Run(strconv.Itoa(i), run(i))
 	}
 }
 
