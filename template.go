@@ -182,7 +182,8 @@ type RuneReader interface {
 	ReadRune() (rune, int, error)
 }
 
-// This function needs refactoring
+// skipIdent finds the code path to run.
+// this probably needs refactoring
 func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, error) {
 	var buf bytes.Buffer
 	i := 0
@@ -286,7 +287,7 @@ func (t *Template) safeEval(code string) (err error) {
 	return err
 }
 
-// evalImports finds all "import" lines evaluates them and removes them from the code
+// evalImports finds all "import" lines evaluates them and removes them from the code.
 func (t *Template) evalImports(code *string) error {
 	var ok bool
 	ok, err := t.hasPackage(*code)
