@@ -13,16 +13,16 @@ func (is importSymbols) Contains(symbol importSymbol) bool {
 	return false
 }
 
-func (s importSymbols) ImportBlock() string {
-	switch len(s) {
+func (is importSymbols) ImportBlock() string {
+	switch len(is) {
 	case 0:
 		return ""
 	case 1:
-		return "import " + s[0].ImportLine()
+		return "import " + is[0].ImportLine()
 	default:
 		var sb strings.Builder
 		sb.WriteString("import (\n")
-		for _, symbol := range s {
+		for _, symbol := range is {
 			sb.WriteString(symbol.ImportLine())
 			sb.WriteRune('\n')
 		}

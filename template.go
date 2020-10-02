@@ -188,7 +188,7 @@ type RuneReader interface {
 
 // skipIdent finds the code path to run.
 // this probably needs refactoring
-//nolint:gocognit // needs refactoring
+//nolint // needs refactoring
 func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, error) {
 	var buf bytes.Buffer
 	i := 0
@@ -356,7 +356,7 @@ func (t *Template) evalImports(code *string) error {
 	return nil
 }
 
-// hasPackage returns true when the code has a 'package' line
+// hasPackage returns true when the code has a 'package' line.
 func (*Template) hasPackage(s string) (bool, error) {
 	_, err := parser.ParseFile(token.NewFileSet(), "", s, parser.PackageClauseOnly)
 	if err != nil {
