@@ -24,9 +24,8 @@ import (
 	"go/token"
 
 	"go/ast"
-	"go/printer"
 
-	"github.com/containous/yaegi/interp"
+	"github.com/traefik/yaegi/interp"
 )
 
 type Template struct {
@@ -34,14 +33,17 @@ type Template struct {
 	use            []interp.Exports
 	templateReader io.Reader
 	consumedReader bool
+	imports        importSymbols
 	StartTokens    []rune
 	EndTokens      []rune
 	interp         *interp.Interpreter
-	outputBuffer   *bytes.Buffer
+	outputBuffer   *outputBuffer
 	mu             sync.Mutex
 }
 
-func New(options interp.Options, use ...interp.Exports) (*Template, error) {
+func New(
+	options interp.Options, //nolint:gocritic // disable hugeParam: options is heavy
+	use ...interp.Exports) (*Template, error) {
 	t := &Template{
 		options:     options,
 		use:         make([]interp.Exports, len(use)),
@@ -62,7 +64,9 @@ func New(options interp.Options, use ...interp.Exports) (*Template, error) {
 	return t, nil
 }
 
-func MustNew(options interp.Options, use ...interp.Exports) *Template {
+func MustNew(
+	options interp.Options, //nolint:gocritic // disable hugeParam: options is heavy
+	use ...interp.Exports) *Template {
 	t, err := New(options, use...)
 	if err != nil {
 		panic(err.Error())
@@ -77,20 +81,20 @@ func (t *Template) Parse(reader io.Reader) error {
 	// for now we don't
 	t.templateReader = reader
 
+	t.outputBuffer = newOutputBuffer(true)
+	t.options.Stdout = t.outputBuffer
+
 	t.interp = interp.New(t.options)
-
-	t.outputBuffer = bytes.NewBuffer(nil)
-
-	t.hijackOs()
-	t.hijackFmt()
 
 	for i := 0; i < len(t.use); i++ {
 		t.interp.Use(t.use[i])
 	}
 
-	t.interp.Eval(`import "fmt"`)
-
-	return nil
+	// import fmt
+	return t.importSymbol(importSymbol{
+		Name: "",
+		Path: "fmt",
+	})
 }
 
 func (t *Template) MustParse(r io.Reader) *Template {
@@ -121,7 +125,9 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 		if !ok {
 			return 0, errors.New("unable to consume template reader again")
 		}
-		seek.Seek(0, io.SeekStart)
+		if _, err := seek.Seek(0, io.SeekStart); err != nil {
+			return 0, fmt.Errorf("unable to seek: %w", err)
+		}
 	}
 	t.consumedReader = true
 
@@ -130,7 +136,7 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 		if err != nil {
 			return 0, fmt.Errorf("unable to read template reader: %w", err)
 		}
-		return t.runCode(string(code), writer, context)
+		return t.execCode(string(code), writer, context)
 	}
 
 	r := bufio.NewReader(t.templateReader)
@@ -151,7 +157,7 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 
 		var codeBuffer bytes.Buffer
 
-		n, rerr, werr = skipIdent(t.EndTokens, r, &codeBuffer)
+		_, rerr, werr = skipIdent(t.EndTokens, r, &codeBuffer)
 		if rerr != nil {
 			if rerr == io.EOF {
 				return total, nil
@@ -162,7 +168,7 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 			return total, werr
 		}
 
-		n, werr = t.runCode(codeBuffer.String(), writer, context)
+		n, werr = t.execCode(codeBuffer.String(), writer, context)
 		total += n
 		if werr != nil {
 			return total, werr
@@ -180,7 +186,9 @@ type RuneReader interface {
 	ReadRune() (rune, int, error)
 }
 
-// This function needs refactoring
+// skipIdent finds the code path to run.
+// this probably needs refactoring
+//nolint // needs refactoring
 func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, error) {
 	var buf bytes.Buffer
 	i := 0
@@ -234,39 +242,36 @@ func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, e
 		}
 	}
 }
-func (t *Template) runCode(code string, out io.Writer, context interface{}) (int, error) {
+func (t *Template) execCode(code string, out io.Writer, context interface{}) (int, error) {
+	if err := t.evalImports(&code); err != nil {
+		return 0, err
+	}
 	if context != nil {
+		// do we need to
 		t.interp.Use(interp.Exports{
 			"internal": map[string]reflect.Value{
 				"context": reflect.ValueOf(context),
 			},
 		})
-		// reimport so we have the correct context values
-		if _, err := t.interp.Eval(`import . "internal"`); err != nil {
+
+		// always reimport internal
+		if err := t.safeEval(`import . "internal"`); err != nil {
 			return 0, err
 		}
 	}
 
-	if err := t.evalCode(code); err != nil {
+	// make sure the buffer is empty
+	t.outputBuffer.DiscardWrites(false)
+	if err := t.safeEval(code); err != nil {
 		return 0, err
 	}
 	n, err := out.Write(t.outputBuffer.Bytes())
+	t.outputBuffer.DiscardWrites(true)
 	t.outputBuffer.Reset()
 	return n, err
 }
 
-func (t *Template) evalCode(code string) (err error) {
-	var ok bool
-	ok, err = t.hasPackage(code)
-	if err != nil {
-		return err
-	}
-	if !ok {
-		if err = t.evalImports(&code); err != nil {
-			return err
-		}
-	}
-
+func (t *Template) safeEval(code string) (err error) {
 	defer func() {
 		e := recover()
 		if e == nil {
@@ -287,16 +292,25 @@ func (t *Template) evalCode(code string) (err error) {
 	return err
 }
 
-// evalImports finds all "import" lines evaluates them and removes them from the code
+// evalImports finds all "import" lines evaluates them and removes them from the code.
 func (t *Template) evalImports(code *string) error {
-	c := "package main\n" + *code
+	var ok bool
+	ok, err := t.hasPackage(*code)
+	if err != nil {
+		return err
+	}
+	var c string
+	if !ok {
+		c = "package main\n" + *code
+	} else {
+		c = *code
+	}
 	fset := token.NewFileSet()
 	f, err := parser.ParseFile(fset, "", c, parser.ImportsOnly)
 	if err != nil {
 		return err
 	}
 
-	var buf bytes.Buffer
 	for _, decl := range f.Decls {
 		genDecl, ok := decl.(*ast.GenDecl)
 		if !ok {
@@ -305,14 +319,32 @@ func (t *Template) evalImports(code *string) error {
 		if genDecl.Tok != token.IMPORT {
 			continue
 		}
-		buf.Reset()
-		if err = printer.Fprint(&buf, fset, genDecl); err != nil {
+
+		syms := make(importSymbols, 0, len(genDecl.Specs))
+		for _, spec := range genDecl.Specs {
+			importSpec, ok := spec.(*ast.ImportSpec)
+			if !ok {
+				continue
+			}
+
+			sym := importSymbol{
+				Name: "",
+				Path: strings.TrimFunc(importSpec.Path.Value, func(r rune) bool {
+					return r == '`' || r == '"'
+				}),
+			}
+
+			if importSpec.Name != nil {
+				sym.Name = importSpec.Name.Name
+			}
+
+			syms = append(syms, sym)
+		}
+
+		if err := t.importSymbol(syms...); err != nil {
 			return err
 		}
-		_, err = t.interp.Eval(buf.String())
-		if err != nil {
-			return err
-		}
+
 		pos := int(genDecl.Pos()) - 1
 		end := int(genDecl.End()) - 1
 		c = c[:pos] + strings.Repeat(" ", end-pos) + c[end:]
@@ -324,7 +356,7 @@ func (t *Template) evalImports(code *string) error {
 	return nil
 }
 
-// hasPackage returns true when the code has a 'package' line
+// hasPackage returns true when the code has a 'package' line.
 func (*Template) hasPackage(s string) (bool, error) {
 	_, err := parser.ParseFile(token.NewFileSet(), "", s, parser.PackageClauseOnly)
 	if err != nil {
@@ -332,7 +364,7 @@ func (*Template) hasPackage(s string) (bool, error) {
 		if !ok {
 			return false, err
 		}
-		if len(errList) <= 0 {
+		if len(errList) == 0 {
 			return false, err
 		}
 		if !strings.HasPrefix(errList[0].Msg, fmt.Sprintf("expected '%s', found", token.PACKAGE)) {
@@ -343,32 +375,21 @@ func (*Template) hasPackage(s string) (bool, error) {
 	return true, nil
 }
 
-func (t *Template) hijackOs() {
-	for i, e := range t.use {
-		if _, ok := e["os"]; ok {
-			t.use[i]["os"]["Stdout"] = reflect.ValueOf(t.outputBuffer)
+func (t *Template) importSymbol(imports ...importSymbol) error {
+	var symbolsToImport importSymbols
+	for _, symbol := range imports {
+		if !t.imports.Contains(symbol) {
+			symbolsToImport = append(symbolsToImport, symbol)
 		}
 	}
-}
 
-func (t *Template) hijackFmt() {
-	print := func(a ...interface{}) (int, error) {
-		return fmt.Fprint(t.outputBuffer, a...)
+	if len(symbolsToImport) == 0 {
+		return nil
 	}
 
-	printf := func(format string, a ...interface{}) (int, error) {
-		return fmt.Fprintf(t.outputBuffer, format, a...)
+	if err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
+		return err
 	}
-
-	println := func(a ...interface{}) (int, error) {
-		return fmt.Fprintln(t.outputBuffer, a...)
-	}
-
-	for i, e := range t.use {
-		if _, ok := e["fmt"]; ok {
-			t.use[i]["fmt"]["Print"] = reflect.ValueOf(print)
-			t.use[i]["fmt"]["Printf"] = reflect.ValueOf(printf)
-			t.use[i]["fmt"]["Println"] = reflect.ValueOf(println)
-		}
-	}
+	t.imports = append(t.imports, symbolsToImport...)
+	return nil
 }

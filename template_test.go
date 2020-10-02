@@ -20,8 +20,8 @@ import (
 
 	"io/ioutil"
 
-	"github.com/containous/yaegi/interp"
-	"github.com/containous/yaegi/stdlib"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
 )
 
 func equalError(a, b error) bool {
@@ -89,11 +89,15 @@ func TestExec(t *testing.T) {
 		t.Run(test.Name, func(t *testing.T) {
 			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
 			var buf bytes.Buffer
-			if _, err := template.Exec(&buf, nil); !equalError(test.ExpectError, err) {
+			n, err := template.Exec(&buf, nil)
+			if !equalError(test.ExpectError, err) {
 				t.Fatalf("expected %#v, got %#v", test.ExpectError, err.Error())
 			}
 			if test.ExpectBuffer != buf.String() {
 				t.Fatalf("expected %#v, got %#v", test.ExpectBuffer, buf.String())
+			}
+			if l := len(test.ExpectBuffer); l != n {
+				t.Fatalf("expected %d, got %d", l, n)
 			}
 		})
 	}
@@ -106,14 +110,17 @@ func TestExecWithContext(t *testing.T) {
 	}
 
 	tests := []struct {
-		Name                  string
-		Options               interp.Options
-		Use                   []interp.Exports
-		Template              string
-		Context               interface{}
-		ExpectContextAfterRun interface{}
-		ExpectBuffer          string
-		ExpectError           error
+		Name                   string
+		Options                interp.Options
+		Use                    []interp.Exports
+		Template               string
+		ContextRun1            interface{}
+		ExpectContextAfterRun1 interface{}
+		ExpectBufferRun1       string
+		ContextRun2            interface{}
+		ExpectContextAfterRun2 interface{}
+		ExpectBufferRun2       string
+		ExpectError            error
 	}{
 		{
 			"Struct",
@@ -123,6 +130,9 @@ func TestExecWithContext(t *testing.T) {
 			User{10, "Yaegi"},
 			User{10, "Yaegi"},
 			`Hello Yaegi (10)`,
+			User{11, "Joe"},
+			User{11, "Joe"},
+			`Hello Joe (11)`,
 			nil,
 		},
 		{
@@ -133,6 +143,9 @@ func TestExecWithContext(t *testing.T) {
 			&User{10, "Yaegi"},
 			&User{10, "Yaegi"},
 			`Hello Yaegi (10)`,
+			&User{11, "Joe"},
+			&User{11, "Joe"},
+			`Hello Joe (11)`,
 			nil,
 		},
 		{
@@ -140,9 +153,12 @@ func TestExecWithContext(t *testing.T) {
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
 			`<$fmt.Printf("%d %s", context["Foo"], context["Bar"])$>`,
-			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
-			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
-			`10 Joe`,
+			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+			`10 Yaegi`,
+			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+			`11 Joe`,
 			nil,
 		},
 		{
@@ -155,9 +171,12 @@ func main() {
 fmt.Printf("%d %s", context["Foo"], context["Bar"])
 }
 $>`,
-			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
-			map[string]interface{}{"Foo": 10, "Bar": "Joe"},
-			`10 Joe`,
+			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+			`10 Yaegi`,
+			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+			`11 Joe`,
 			nil,
 		},
 	}
@@ -167,14 +186,36 @@ $>`,
 		t.Run(test.Name, func(t *testing.T) {
 			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
 			var buf bytes.Buffer
-			if _, err := template.Exec(&buf, test.Context); !equalError(test.ExpectError, err) {
+			n, err := template.Exec(&buf, test.ContextRun1)
+			if !equalError(test.ExpectError, err) {
 				t.Fatalf("expected %#v, got %#v", test.ExpectError, err)
 			}
-			if test.ExpectBuffer != buf.String() {
-				t.Fatalf("expected %#v, got %#v", test.ExpectBuffer, buf.String())
+			if test.ExpectBufferRun1 != buf.String() {
+				t.Fatalf("expected %#v, got %#v", test.ExpectBufferRun1, buf.String())
 			}
-			if !reflect.DeepEqual(test.ExpectContextAfterRun, test.Context) {
-				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun, test.Context)
+			if !reflect.DeepEqual(test.ExpectContextAfterRun1, test.ContextRun1) {
+				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun1, test.ContextRun1)
+			}
+
+			if l := len(test.ExpectBufferRun1); l != n {
+				t.Fatalf("expected %d, got %d", l, n)
+			}
+
+			// run again with the second context
+			buf.Reset()
+			n, err = template.Exec(&buf, test.ContextRun2)
+			if !equalError(test.ExpectError, err) {
+				t.Fatalf("expected %#v, got %#v", test.ExpectError, err)
+			}
+			if test.ExpectBufferRun2 != buf.String() {
+				t.Fatalf("expected %#v, got %#v", test.ExpectBufferRun2, buf.String())
+			}
+			if !reflect.DeepEqual(test.ExpectContextAfterRun2, test.ContextRun2) {
+				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun2, test.ContextRun2)
+			}
+
+			if l := len(test.ExpectBufferRun2); l != n {
+				t.Fatalf("expected %d, got %d", l, n)
 			}
 		})
 	}
@@ -301,8 +342,8 @@ func TestMultiExec(t *testing.T) {
 		templates = append(templates, t)
 	}
 
-	for i := 0; i < 1000; i++ {
-		t.Run(strconv.Itoa(i), func(t *testing.T) {
+	run := func(i int) func(t *testing.T) {
+		return func(t *testing.T) {
 			t.Parallel()
 			templateIndex := i % len(templates)
 			msg := MessageContext{Message: strconv.Itoa(i)}
@@ -312,7 +353,11 @@ func TestMultiExec(t *testing.T) {
 			if expect != buf.String() {
 				t.Fatalf(`expected %s, got %#v`, expect, buf.String())
 			}
-		})
+		}
+	}
+
+	for i := 0; i < 1000; i++ {
+		t.Run(strconv.Itoa(i), run(i))
 	}
 }
 

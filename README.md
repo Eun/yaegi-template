@@ -8,8 +8,8 @@ import (
 	"os"
 
 	"github.com/Eun/yaegi-template"
-	"github.com/containous/yaegi/interp"
-	"github.com/containous/yaegi/stdlib"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
 )
 
 func main() {
