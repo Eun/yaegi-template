@@ -335,7 +335,7 @@ func (t *Template) evalImports(code *string) error {
 			syms = append(syms, sym)
 		}
 
-		if err = t.importSymbol(syms...); err != nil {
+		if err := t.importSymbol(syms...); err != nil {
 			return err
 		}
 
