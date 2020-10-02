@@ -187,6 +187,7 @@ issues:
         - errcheck
         - dupl
         - gosec
+        - funlen
 
 
 # golangci.com configuration
