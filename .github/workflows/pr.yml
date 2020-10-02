@@ -1,0 +1,27 @@
+---
+name: CI
+on:
+  push:
+jobs:
+  # We already run the current golangci-lint in tests, but here we test
+  # our GitHub action with the latest stable golangci-lint.
+  golangci-lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: lint
+        continue-on-error: false
+        uses: golangci/golangci-lint-action@v2
+        with:
+          version: latest
+
+  vulns:
+    name: Vulnerability scanner
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions/setup-go@v2
+      # We cannot use nancy-github-action because it is outdated, so it's better to use the latest
+      # docker image for the validation
+      - name: nancy
+        run: go list -json -m all | docker run -i sonatypecommunity/nancy:latest
