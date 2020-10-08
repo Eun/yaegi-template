@@ -166,30 +166,17 @@ func TestExecWithContext(t *testing.T) {
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
 			`<$
-package main
-func main() {
-fmt.Printf("%d %s", context["Foo"], context["Bar"])
-}
-$>`,
+		package main
+		func main() {
+		fmt.Printf("%d %s", context["Foo"], context["Bar"])
+		}
+		$>`,
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
 			`10 Yaegi`,
 			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
 			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
 			`11 Joe`,
-			nil,
-		},
-		{
-			"Struct Implicit",
-			interp.Options{},
-			[]interp.Exports{stdlib.Symbols},
-			`Hello <$context.Name$>`,
-			User{10, "Yaegi"},
-			User{10, "Yaegi"},
-			`Hello Yaegi`,
-			User{11, "Joe"},
-			User{11, "Joe"},
-			`Hello Joe`,
 			nil,
 		},
 	}
@@ -583,4 +570,23 @@ fmt.Printf(fmt.Sprintf("Hello %s", world.World()))
 			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
 		}
 	})
+}
+
+func TestImplicitReturn(t *testing.T) {
+	ctx := map[string]interface{}{
+		"Bool":   false,
+		"Int":    1,
+		"Uint":   uint(1),
+		"Float":  1.2,
+		"String": "Foo",
+		"Func":   func() {},
+	}
+	template := MustNew(interp.Options{}, stdlib.Symbols)
+	template.MustParseString(`<$context["Bool"]$> <$context["Int"]$> <$context["Uint"]$> <$context["Float"]$> <$context["String"]$> <$context["Func"]$>`)
+	var buf bytes.Buffer
+	template.MustExec(&buf, ctx)
+
+	if buf.String() != `false 1 1 1.2 Foo ` {
+		t.Fatalf(`expected "false 1 1 1.2 Foo ", got %#v`, buf.String())
+	}
 }

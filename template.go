@@ -278,6 +278,10 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 }
 
 func (t *Template) safeEval(code string) (res reflect.Value, err error) {
+	if strings.TrimSpace(code) == "" {
+		return reflect.Value{}, nil
+	}
+
 	defer func() {
 		e := recover()
 		if e == nil {
@@ -299,17 +303,15 @@ func (t *Template) safeEval(code string) (res reflect.Value, err error) {
 }
 
 func printValue(v reflect.Value) string {
-	switch v.Kind() { //nolint:exhaustive ignore the other types
-	case reflect.Bool:
-		return fmt.Sprint(v.Bool())
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return fmt.Sprint(v.Int())
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return fmt.Sprint(v.Uint())
-	case reflect.Float32, reflect.Float64:
-		return fmt.Sprint(v.Float())
-	case reflect.String:
-		return v.String()
+	if !v.IsValid() || !v.CanInterface() {
+		return ""
+	}
+
+	switch x := v.Interface().(type) {
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(x)
+	case string:
+		return x
 	default:
 		return ""
 	}
