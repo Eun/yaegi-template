@@ -269,7 +269,7 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 
 	if t.outputBuffer.Length() == 0 {
 		// implicit write
-		fmt.Fprintf(t.outputBuffer, printValue(res))
+		fmt.Fprint(t.outputBuffer, printValue(res))
 	}
 	n, err := out.Write(t.outputBuffer.Bytes())
 	t.outputBuffer.DiscardWrites(true)
@@ -299,7 +299,7 @@ func (t *Template) safeEval(code string) (res reflect.Value, err error) {
 }
 
 func printValue(v reflect.Value) string {
-	switch v.Kind() {
+	switch v.Kind() { //nolint:exhaustive ignore the other types
 	case reflect.Bool:
 		return fmt.Sprint(v.Bool())
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
