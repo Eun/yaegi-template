@@ -179,6 +179,19 @@ $>`,
 			`11 Joe`,
 			nil,
 		},
+		{
+			"Struct Implicit",
+			interp.Options{},
+			[]interp.Exports{stdlib.Symbols},
+			`Hello <$context.Name$>`,
+			User{10, "Yaegi"},
+			User{10, "Yaegi"},
+			`Hello Yaegi`,
+			User{11, "Joe"},
+			User{11, "Joe"},
+			`Hello Joe`,
+			nil,
+		},
 	}
 
 	for i := range tests {

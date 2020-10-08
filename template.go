@@ -255,15 +255,23 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 		})
 
 		// always reimport internal
-		if err := t.safeEval(`import . "internal"`); err != nil {
+		if _, err := t.safeEval(`import . "internal"`); err != nil {
 			return 0, err
 		}
 	}
 
 	// make sure the buffer is empty
 	t.outputBuffer.DiscardWrites(false)
-	if err := t.safeEval(code); err != nil {
+	res, err := t.safeEval(code)
+	if err != nil {
 		return 0, err
+	}
+
+	if t.outputBuffer.Length() == 0 {
+		// implicit write
+		if res.CanInterface() {
+			fmt.Fprintf(t.outputBuffer, "%v", res.Interface())
+		}
 	}
 	n, err := out.Write(t.outputBuffer.Bytes())
 	t.outputBuffer.DiscardWrites(true)
@@ -271,7 +279,7 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 	return n, err
 }
 
-func (t *Template) safeEval(code string) (err error) {
+func (t *Template) safeEval(code string) (res reflect.Value, err error) {
 	defer func() {
 		e := recover()
 		if e == nil {
@@ -285,11 +293,11 @@ func (t *Template) safeEval(code string) (err error) {
 		}
 	}()
 
-	_, err = t.interp.Eval(code)
+	res, err = t.interp.Eval(code)
 	if err != nil {
-		return err
+		return res, err
 	}
-	return err
+	return res, err
 }
 
 // evalImports finds all "import" lines evaluates them and removes them from the code.
@@ -387,7 +395,7 @@ func (t *Template) importSymbol(imports ...importSymbol) error {
 		return nil
 	}
 
-	if err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
+	if _, err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
 		return err
 	}
 	t.imports = append(t.imports, symbolsToImport...)
