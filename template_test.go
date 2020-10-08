@@ -170,7 +170,7 @@ package main
 func main() {
 fmt.Printf("%d %s", context["Foo"], context["Bar"])
 }
-$>`,
+		$>`,
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
 			`10 Yaegi`,
@@ -570,4 +570,57 @@ fmt.Printf(fmt.Sprintf("Hello %s", world.World()))
 			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
 		}
 	})
+}
+
+func TestImplicitReturn(t *testing.T) {
+	tests := []struct {
+		key    string
+		value  interface{}
+		expect string
+	}{
+		{
+			"Bool",
+			false,
+			"false",
+		},
+		{
+			"Int",
+			1,
+			"1",
+		},
+		{
+			"Uint",
+			uint(1),
+			"1",
+		},
+		{
+			"Float",
+			1.2,
+			"1.2",
+		},
+		{
+			"String",
+			"Foo",
+			"Foo",
+		},
+		{
+			"Func",
+			func() {},
+			"",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.key, func(t *testing.T) {
+			template := MustNew(interp.Options{}, stdlib.Symbols)
+			template.StartTokens = nil
+			template.EndTokens = nil
+			template.MustParseString(fmt.Sprintf(`context["%s"]`, test.key))
+			var buf bytes.Buffer
+			template.MustExec(&buf, map[string]interface{}{test.key: test.value})
+			if buf.String() != test.expect {
+				t.Fatalf(`expected %#v, got %#v`, test.expect, buf.String())
+			}
+		})
+	}
 }

@@ -255,15 +255,21 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 		})
 
 		// always reimport internal
-		if err := t.safeEval(`import . "internal"`); err != nil {
+		if _, err := t.safeEval(`import . "internal"`); err != nil {
 			return 0, err
 		}
 	}
 
 	// make sure the buffer is empty
 	t.outputBuffer.DiscardWrites(false)
-	if err := t.safeEval(code); err != nil {
+	res, err := t.safeEval(code)
+	if err != nil {
 		return 0, err
+	}
+
+	if t.outputBuffer.Length() == 0 {
+		// implicit write
+		fmt.Fprint(t.outputBuffer, printValue(res))
 	}
 	n, err := out.Write(t.outputBuffer.Bytes())
 	t.outputBuffer.DiscardWrites(true)
@@ -271,7 +277,11 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 	return n, err
 }
 
-func (t *Template) safeEval(code string) (err error) {
+func (t *Template) safeEval(code string) (res reflect.Value, err error) {
+	if strings.TrimSpace(code) == "" {
+		return reflect.Value{}, nil
+	}
+
 	defer func() {
 		e := recover()
 		if e == nil {
@@ -285,11 +295,26 @@ func (t *Template) safeEval(code string) (err error) {
 		}
 	}()
 
-	_, err = t.interp.Eval(code)
+	res, err = t.interp.Eval(code)
 	if err != nil {
-		return err
+		return res, err
 	}
-	return err
+	return res, err
+}
+
+func printValue(v reflect.Value) string {
+	if !v.IsValid() || !v.CanInterface() {
+		return ""
+	}
+
+	switch x := v.Interface().(type) {
+	case bool, int, int8, int16, int32, int64, uint, uint8, uint16, uint32, uint64, float32, float64:
+		return fmt.Sprint(x)
+	case string:
+		return x
+	default:
+		return ""
+	}
 }
 
 // evalImports finds all "import" lines evaluates them and removes them from the code.
@@ -387,7 +412,7 @@ func (t *Template) importSymbol(imports ...importSymbol) error {
 		return nil
 	}
 
-	if err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
+	if _, err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
 		return err
 	}
 	t.imports = append(t.imports, symbolsToImport...)
