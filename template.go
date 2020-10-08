@@ -269,9 +269,7 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 
 	if t.outputBuffer.Length() == 0 {
 		// implicit write
-		if res.CanInterface() {
-			fmt.Fprintf(t.outputBuffer, "%v", res.Interface())
-		}
+		fmt.Fprintf(t.outputBuffer, printValue(res))
 	}
 	n, err := out.Write(t.outputBuffer.Bytes())
 	t.outputBuffer.DiscardWrites(true)
@@ -298,6 +296,23 @@ func (t *Template) safeEval(code string) (res reflect.Value, err error) {
 		return res, err
 	}
 	return res, err
+}
+
+func printValue(v reflect.Value) string {
+	switch v.Kind() {
+	case reflect.Bool:
+		return fmt.Sprint(v.Bool())
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return fmt.Sprint(v.Int())
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return fmt.Sprint(v.Uint())
+	case reflect.Float32, reflect.Float64:
+		return fmt.Sprint(v.Float())
+	case reflect.String:
+		return v.String()
+	default:
+		return ""
+	}
 }
 
 // evalImports finds all "import" lines evaluates them and removes them from the code.
