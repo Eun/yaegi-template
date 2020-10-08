@@ -122,54 +122,54 @@ func TestExecWithContext(t *testing.T) {
 		ExpectBufferRun2       string
 		ExpectError            error
 	}{
-		{
-			"Struct",
-			interp.Options{},
-			[]interp.Exports{stdlib.Symbols},
-			`Hello <$fmt.Printf("%s (%d)", context.Name, context.ID)$>`,
-			User{10, "Yaegi"},
-			User{10, "Yaegi"},
-			`Hello Yaegi (10)`,
-			User{11, "Joe"},
-			User{11, "Joe"},
-			`Hello Joe (11)`,
-			nil,
-		},
-		{
-			"PtrStruct",
-			interp.Options{},
-			[]interp.Exports{stdlib.Symbols},
-			`Hello <$fmt.Printf("%s (%d)", context.Name, context.ID)$>`,
-			&User{10, "Yaegi"},
-			&User{10, "Yaegi"},
-			`Hello Yaegi (10)`,
-			&User{11, "Joe"},
-			&User{11, "Joe"},
-			`Hello Joe (11)`,
-			nil,
-		},
-		{
-			"Map",
-			interp.Options{},
-			[]interp.Exports{stdlib.Symbols},
-			`<$fmt.Printf("%d %s", context["Foo"], context["Bar"])$>`,
-			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
-			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
-			`10 Yaegi`,
-			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
-			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
-			`11 Joe`,
-			nil,
-		},
+		// {
+		// 	"Struct",
+		// 	interp.Options{},
+		// 	[]interp.Exports{stdlib.Symbols},
+		// 	`Hello <$fmt.Printf("%s (%d)", context.Name, context.ID)$>`,
+		// 	User{10, "Yaegi"},
+		// 	User{10, "Yaegi"},
+		// 	`Hello Yaegi (10)`,
+		// 	User{11, "Joe"},
+		// 	User{11, "Joe"},
+		// 	`Hello Joe (11)`,
+		// 	nil,
+		// },
+		// {
+		// 	"PtrStruct",
+		// 	interp.Options{},
+		// 	[]interp.Exports{stdlib.Symbols},
+		// 	`Hello <$fmt.Printf("%s (%d)", context.Name, context.ID)$>`,
+		// 	&User{10, "Yaegi"},
+		// 	&User{10, "Yaegi"},
+		// 	`Hello Yaegi (10)`,
+		// 	&User{11, "Joe"},
+		// 	&User{11, "Joe"},
+		// 	`Hello Joe (11)`,
+		// 	nil,
+		// },
+		// {
+		// 	"Map",
+		// 	interp.Options{},
+		// 	[]interp.Exports{stdlib.Symbols},
+		// 	`<$fmt.Printf("%d %s", context["Foo"], context["Bar"])$>`,
+		// 	map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+		// 	map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+		// 	`10 Yaegi`,
+		// 	map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+		// 	map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+		// 	`11 Joe`,
+		// 	nil,
+		// },
 		{
 			"Package",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
 			`<$
-		package main
-		func main() {
-		fmt.Printf("%d %s", context["Foo"], context["Bar"])
-		}
+package main
+func main() {
+fmt.Printf("%d %s", context["Foo"], context["Bar"])
+}
 		$>`,
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
@@ -573,20 +573,54 @@ fmt.Printf(fmt.Sprintf("Hello %s", world.World()))
 }
 
 func TestImplicitReturn(t *testing.T) {
-	ctx := map[string]interface{}{
-		"Bool":   false,
-		"Int":    1,
-		"Uint":   uint(1),
-		"Float":  1.2,
-		"String": "Foo",
-		"Func":   func() {},
+	tests := []struct {
+		key    string
+		value  interface{}
+		expect string
+	}{
+		{
+			"Bool",
+			false,
+			"false",
+		},
+		{
+			"Int",
+			1,
+			"1",
+		},
+		{
+			"Uint",
+			uint(1),
+			"1",
+		},
+		{
+			"Float",
+			1.2,
+			"1.2",
+		},
+		{
+			"String",
+			"Foo",
+			"Foo",
+		},
+		{
+			"Func",
+			func() {},
+			"",
+		},
 	}
-	template := MustNew(interp.Options{}, stdlib.Symbols)
-	template.MustParseString(`<$context["Bool"]$> <$context["Int"]$> <$context["Uint"]$> <$context["Float"]$> <$context["String"]$> <$context["Func"]$>`)
-	var buf bytes.Buffer
-	template.MustExec(&buf, ctx)
 
-	if buf.String() != `false 1 1 1.2 Foo ` {
-		t.Fatalf(`expected "false 1 1 1.2 Foo ", got %#v`, buf.String())
+	for _, test := range tests {
+		t.Run(test.key, func(t *testing.T) {
+			template := MustNew(interp.Options{}, stdlib.Symbols)
+			template.StartTokens = nil
+			template.EndTokens = nil
+			template.MustParseString(fmt.Sprintf(`context["%s"]`, test.key))
+			var buf bytes.Buffer
+			template.MustExec(&buf, map[string]interface{}{test.key: test.value})
+			if buf.String() != test.expect {
+				t.Fatalf(`expected %#v, got %#v`, test.expect, buf.String())
+			}
+		})
 	}
 }
