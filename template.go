@@ -26,7 +26,6 @@ type Template struct {
 	options        interp.Options
 	use            []interp.Exports
 	templateReader io.Reader
-	consumedReader bool
 	imports        importSymbols
 	StartTokens    []rune
 	EndTokens      []rune
