@@ -122,7 +122,7 @@ func (i *liveIterator) readTextBlock() (*Part, bool, error) {
 		}
 
 		if r == unicode.ReplacementChar {
-			if err = writeSeqBuffer(); err != nil {
+			if err := writeSeqBuffer(); err != nil {
 				return nil, true, err
 			}
 			return constructTextPart(contentBuffer.Bytes(), i.stripLeadingWhiteSpaces), true, nil
@@ -148,7 +148,7 @@ func (i *liveIterator) readTextBlock() (*Part, bool, error) {
 				content = bytes.TrimRightFunc(content, unicode.IsSpace)
 			} else {
 				// its not an "-"
-				if err = i.reader.UnreadRune(); err != nil {
+				if err := i.reader.UnreadRune(); err != nil {
 					return nil, true, err
 				}
 			}
