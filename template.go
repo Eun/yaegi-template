@@ -8,15 +8,8 @@ import (
 
 	"bytes"
 
-	"bufio"
-
-	"unicode/utf8"
-
-	"errors"
-
 	"fmt"
 
-	"io/ioutil"
 	"sync"
 
 	"go/parser"
@@ -26,18 +19,20 @@ import (
 	"go/ast"
 
 	"github.com/traefik/yaegi/interp"
+
+	"github.com/Eun/yaegi-template/codebuffer"
 )
 
 type Template struct {
 	options        interp.Options
 	use            []interp.Exports
 	templateReader io.Reader
-	consumedReader bool
 	imports        importSymbols
 	StartTokens    []rune
 	EndTokens      []rune
 	interp         *interp.Interpreter
 	outputBuffer   *outputBuffer
+	codeBuffer     *codebuffer.CodeBuffer
 	mu             sync.Mutex
 }
 
@@ -82,6 +77,7 @@ func (t *Template) Parse(reader io.Reader) error {
 	t.templateReader = reader
 
 	t.outputBuffer = newOutputBuffer(true)
+	t.codeBuffer = codebuffer.New(reader, t.StartTokens, t.EndTokens)
 	t.options.Stdout = t.outputBuffer
 
 	t.interp = interp.New(t.options)
@@ -118,62 +114,37 @@ func (t *Template) MustParseString(s string) *Template {
 func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	// to execute a template multiple times we must be able to seek the reader back
-	// to the start, if we cannot seek back we fail
-	if t.consumedReader {
-		seek, ok := t.templateReader.(io.Seeker)
-		if !ok {
-			return 0, errors.New("unable to consume template reader again")
-		}
-		if _, err := seek.Seek(0, io.SeekStart); err != nil {
-			return 0, fmt.Errorf("unable to seek: %w", err)
-		}
-	}
-	t.consumedReader = true
 
-	if len(t.StartTokens) == 0 || len(t.EndTokens) == 0 {
-		code, err := ioutil.ReadAll(t.templateReader)
-		if err != nil {
-			return 0, fmt.Errorf("unable to read template reader: %w", err)
-		}
-		return t.execCode(string(code), writer, context)
+	it, err := t.codeBuffer.Iterator()
+	if err != nil {
+		return 0, err
 	}
-
-	r := bufio.NewReader(t.templateReader)
 
 	total := 0
-	for {
-		n, rerr, werr := skipIdent(t.StartTokens, r, writer)
-		total += n
-		if rerr != nil {
-			if rerr == io.EOF {
-				return total, nil
+
+	for it.Next() {
+		part := it.Value()
+		switch part.Type {
+		case codebuffer.CodePartType:
+			n, err := t.execCode(string(part.Content), writer, context)
+			if err != nil {
+				return total, err
 			}
-			return total, rerr
-		}
-		if werr != nil {
-			return total, werr
-		}
-
-		var codeBuffer bytes.Buffer
-
-		_, rerr, werr = skipIdent(t.EndTokens, r, &codeBuffer)
-		if rerr != nil {
-			if rerr == io.EOF {
-				return total, nil
+			if n > 0 {
+				total += n
 			}
-			return total, rerr
-		}
-		if werr != nil {
-			return total, werr
-		}
-
-		n, werr = t.execCode(codeBuffer.String(), writer, context)
-		total += n
-		if werr != nil {
-			return total, werr
+		case codebuffer.TextPartType:
+			n, err := writer.Write(part.Content)
+			if err != nil {
+				return total, err
+			}
+			if n > 0 {
+				total += n
+			}
 		}
 	}
+
+	return total, it.Error()
 }
 
 func (t *Template) MustExec(writer io.Writer, context interface{}) {
@@ -186,62 +157,6 @@ type RuneReader interface {
 	ReadRune() (rune, int, error)
 }
 
-// skipIdent finds the code path to run.
-// this probably needs refactoring
-//nolint // needs refactoring
-func skipIdent(token []rune, reader RuneReader, writer io.Writer) (int, error, error) {
-	var buf bytes.Buffer
-	i := 0
-	total := 0
-	size := len(token)
-	for {
-		r, _, rerr := reader.ReadRune()
-	c:
-		if r != 0 && r != utf8.RuneError {
-			if r == token[i] {
-				if i == size-1 {
-					// we found the token
-					i = 0
-					return total, rerr, nil
-				} else {
-					buf.WriteRune(r)
-					i++
-				}
-			} else {
-				// not our token?
-				// we have something in the buffer?
-				// write it
-				if i > 0 {
-					n, werr := writer.Write(buf.Bytes())
-					total += n
-					if werr != nil {
-						return total, rerr, werr
-					}
-					buf.Reset()
-					i = 0
-					goto c
-				}
-
-				// write the non matching rune
-				i = 0
-				n, werr := writer.Write([]byte(string([]rune{r})))
-				total += n
-				if werr != nil {
-					return total, rerr, werr
-				}
-			}
-		}
-
-		// an error on reading
-		if rerr != nil {
-			if buf.Len() > 0 {
-				n, werr := writer.Write(buf.Bytes())
-				return total + n, rerr, werr
-			}
-			return total, rerr, nil
-		}
-	}
-}
 func (t *Template) execCode(code string, out io.Writer, context interface{}) (int, error) {
 	if err := t.evalImports(&code); err != nil {
 		return 0, err
@@ -376,7 +291,7 @@ func (t *Template) evalImports(code *string) error {
 	}
 
 	// remove package main\n
-	*code = c[13:]
+	*code = c[f.Name.End():]
 
 	return nil
 }

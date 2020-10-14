@@ -1,16 +1,9 @@
 package yaegi_template
 
 import (
-	"io"
 	"testing"
 
 	"bytes"
-
-	"bufio"
-
-	"errors"
-
-	"reflect"
 
 	"fmt"
 	"strconv"
@@ -20,19 +13,10 @@ import (
 
 	"io/ioutil"
 
+	"github.com/stretchr/testify/require"
 	"github.com/traefik/yaegi/interp"
 	"github.com/traefik/yaegi/stdlib"
 )
-
-func equalError(a, b error) bool {
-	if a == b {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return a.Error() == b.Error()
-}
 
 func TestExec(t *testing.T) {
 	tests := []struct {
@@ -40,8 +24,8 @@ func TestExec(t *testing.T) {
 		Options      interp.Options
 		Use          []interp.Exports
 		Template     string
-		ExpectBuffer string
-		ExpectError  error
+		ExpectOutput string
+		ExpectError  string
 	}{
 		{
 			"Hello Yaegi",
@@ -49,7 +33,7 @@ func TestExec(t *testing.T) {
 			[]interp.Exports{stdlib.Symbols},
 			`<html><$fmt.Print("Hello Yaegi")$></html>`,
 			`<html>Hello Yaegi</html>`,
-			nil,
+			"",
 		},
 		{
 			"Func",
@@ -63,7 +47,7 @@ func TestExec(t *testing.T) {
 			`<html>
 <p>Hello Yaegi</p>
 </html>`,
-			nil,
+			"",
 		},
 
 		{
@@ -72,7 +56,7 @@ func TestExec(t *testing.T) {
 			[]interp.Exports{stdlib.Symbols},
 			`<$ Hello $>`,
 			"",
-			errors.New(`1:29: undefined: Hello`),
+			`1:29: undefined: Hello`,
 		},
 		{
 			"Import",
@@ -80,7 +64,7 @@ func TestExec(t *testing.T) {
 			[]interp.Exports{stdlib.Symbols},
 			`<$import "net/url"$><$fmt.Print(url.PathEscape("Hello World"))$>`,
 			"Hello%20World",
-			nil,
+			"",
 		},
 	}
 
@@ -90,15 +74,13 @@ func TestExec(t *testing.T) {
 			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
 			var buf bytes.Buffer
 			n, err := template.Exec(&buf, nil)
-			if !equalError(test.ExpectError, err) {
-				t.Fatalf("expected %#v, got %#v", test.ExpectError, err.Error())
+			if test.ExpectError == "" {
+				require.NoError(t, err)
+			} else {
+				require.EqualError(t, err, test.ExpectError)
 			}
-			if test.ExpectBuffer != buf.String() {
-				t.Fatalf("expected %#v, got %#v", test.ExpectBuffer, buf.String())
-			}
-			if l := len(test.ExpectBuffer); l != n {
-				t.Fatalf("expected %d, got %d", l, n)
-			}
+			require.Equal(t, test.ExpectOutput, buf.String())
+			require.Len(t, test.ExpectOutput, n)
 		})
 	}
 }
@@ -116,11 +98,11 @@ func TestExecWithContext(t *testing.T) {
 		Template               string
 		ContextRun1            interface{}
 		ExpectContextAfterRun1 interface{}
-		ExpectBufferRun1       string
+		ExpectOutputRun1       string
 		ContextRun2            interface{}
 		ExpectContextAfterRun2 interface{}
-		ExpectBufferRun2       string
-		ExpectError            error
+		ExpectOutputRun2       string
+		ExpectError            string
 	}{
 		{
 			"Struct",
@@ -133,7 +115,7 @@ func TestExecWithContext(t *testing.T) {
 			User{11, "Joe"},
 			User{11, "Joe"},
 			`Hello Joe (11)`,
-			nil,
+			"",
 		},
 		{
 			"PtrStruct",
@@ -146,7 +128,7 @@ func TestExecWithContext(t *testing.T) {
 			&User{11, "Joe"},
 			&User{11, "Joe"},
 			`Hello Joe (11)`,
-			nil,
+			"",
 		},
 		{
 			"Map",
@@ -159,7 +141,7 @@ func TestExecWithContext(t *testing.T) {
 			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
 			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
 			`11 Joe`,
-			nil,
+			"",
 		},
 		{
 			"Package",
@@ -177,7 +159,25 @@ fmt.Printf("%d %s", context["Foo"], context["Bar"])
 			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
 			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
 			`11 Joe`,
-			nil,
+			"",
+		},
+		{
+			"Package (Indented)",
+			interp.Options{},
+			[]interp.Exports{stdlib.Symbols},
+			`<$
+	package main
+	func main() {
+	fmt.Printf("%d %s", context["Foo"], context["Bar"])
+	}
+		$>`,
+			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
+			`10 Yaegi`,
+			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+			map[string]interface{}{"Foo": 11, "Bar": "Joe"},
+			`11 Joe`,
+			"",
 		},
 	}
 
@@ -187,131 +187,26 @@ fmt.Printf("%d %s", context["Foo"], context["Bar"])
 			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
 			var buf bytes.Buffer
 			n, err := template.Exec(&buf, test.ContextRun1)
-			if !equalError(test.ExpectError, err) {
-				t.Fatalf("expected %#v, got %#v", test.ExpectError, err)
+			if test.ExpectError == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err, test.ExpectError)
 			}
-			if test.ExpectBufferRun1 != buf.String() {
-				t.Fatalf("expected %#v, got %#v", test.ExpectBufferRun1, buf.String())
-			}
-			if !reflect.DeepEqual(test.ExpectContextAfterRun1, test.ContextRun1) {
-				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun1, test.ContextRun1)
-			}
-
-			if l := len(test.ExpectBufferRun1); l != n {
-				t.Fatalf("expected %d, got %d", l, n)
-			}
+			require.Equal(t, test.ExpectOutputRun1, buf.String())
+			require.Equal(t, test.ExpectContextAfterRun1, test.ContextRun1)
+			require.Len(t, test.ExpectOutputRun1, n)
 
 			// run again with the second context
 			buf.Reset()
 			n, err = template.Exec(&buf, test.ContextRun2)
-			if !equalError(test.ExpectError, err) {
-				t.Fatalf("expected %#v, got %#v", test.ExpectError, err)
+			if test.ExpectError == "" {
+				require.NoError(t, err)
+			} else {
+				require.Error(t, err, test.ExpectError)
 			}
-			if test.ExpectBufferRun2 != buf.String() {
-				t.Fatalf("expected %#v, got %#v", test.ExpectBufferRun2, buf.String())
-			}
-			if !reflect.DeepEqual(test.ExpectContextAfterRun2, test.ContextRun2) {
-				t.Fatalf("expected %#v, got %#v", test.ExpectContextAfterRun2, test.ContextRun2)
-			}
-
-			if l := len(test.ExpectBufferRun2); l != n {
-				t.Fatalf("expected %d, got %d", l, n)
-			}
-		})
-	}
-}
-
-func TestSkipIdent(t *testing.T) {
-	tests := []struct {
-		Name             string
-		Token            string
-		Input            []byte
-		ExpectBuffer     []byte
-		ExpectReadError  error
-		ExpectWriteError error
-	}{
-		{"Single",
-			"{",
-			[]byte("Hello{World"),
-			[]byte("Hello"),
-			nil,
-			nil,
-		},
-		{"Double",
-			"{%",
-			[]byte("Hello{%World"),
-			[]byte("Hello"),
-			nil,
-			nil,
-		},
-		{"Double (same rune)",
-			"{{",
-			[]byte("Hello{{{World"),
-			[]byte("Hello"),
-			nil,
-			nil,
-		},
-		{"Only find the first",
-			"{%",
-			[]byte("Hello{%World{%Bye"),
-			[]byte("Hello"),
-			nil,
-			nil,
-		},
-		{"50% invalid",
-			"{%",
-			[]byte("Foo{{Bar{%Baz"),
-			[]byte("Foo{{Bar"),
-			nil,
-			nil,
-		},
-		{"On start",
-			"{%",
-			[]byte("{%Baz"),
-			[]byte(""),
-			nil,
-			nil,
-		},
-		{"On end",
-			"{%",
-			[]byte("Baz{%"),
-			[]byte("Baz"),
-			nil,
-			nil,
-		},
-		{"Nothing at all",
-			"{%",
-			[]byte("Bar"),
-			[]byte("Bar"),
-			io.EOF,
-			nil,
-		},
-		{
-			"",
-			"}%",
-			[]byte("Hello}}%"),
-			[]byte("Hello}"),
-			nil,
-			nil,
-		},
-	}
-	for i := range tests {
-		test := tests[i]
-		t.Run(test.Name, func(t *testing.T) {
-			var buf bytes.Buffer
-			n, rerr, werr := skipIdent([]rune(test.Token), bufio.NewReader(bytes.NewReader(test.Input)), &buf)
-			if test.ExpectReadError != rerr {
-				t.Fatalf("expected %#v, got %#v", test.ExpectReadError, rerr)
-			}
-			if test.ExpectWriteError != werr {
-				t.Fatalf("expected %#v, got %#v", test.ExpectWriteError, werr)
-			}
-			if !bytes.Equal(test.ExpectBuffer, buf.Bytes()) {
-				t.Fatalf("expected %#v (%#v), got %#v (%#v)", test.ExpectBuffer, string(test.ExpectBuffer), buf.Bytes(), buf.String())
-			}
-			if len(test.ExpectBuffer) != n {
-				t.Fatalf("expected %#v, got %#v", len(test.ExpectBuffer), n)
-			}
+			require.Equal(t, test.ExpectOutputRun2, buf.String())
+			require.Equal(t, test.ExpectContextAfterRun2, test.ContextRun2)
+			require.Len(t, test.ExpectOutputRun2, n)
 		})
 	}
 }
@@ -347,12 +242,9 @@ func TestMultiExec(t *testing.T) {
 			t.Parallel()
 			templateIndex := i % len(templates)
 			msg := MessageContext{Message: strconv.Itoa(i)}
-			expect := fmt.Sprintf("Hello %d %d", templateIndex, i)
 			var buf bytes.Buffer
 			templates[templateIndex].MustExec(&buf, msg)
-			if expect != buf.String() {
-				t.Fatalf(`expected %s, got %#v`, expect, buf.String())
-			}
+			require.Equal(t, fmt.Sprintf("Hello %d %d", templateIndex, i), buf.String())
 		}
 	}
 
@@ -364,21 +256,17 @@ func TestMultiExec(t *testing.T) {
 func TestFmtSprintf(t *testing.T) {
 	template := MustNew(interp.Options{}, stdlib.Symbols)
 	template.MustParseString(`<$fmt.Printf(fmt.Sprintf("Hello %s", "World"))$>`)
-	var buf1 bytes.Buffer
-	template.MustExec(&buf1, nil)
-	if buf1.String() != "Hello World" {
-		t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-	}
+	var buf bytes.Buffer
+	template.MustExec(&buf, nil)
+	require.Equal(t, "Hello World", buf.String())
 }
 
 func TestPanic(t *testing.T) {
 	template := MustNew(interp.Options{}, stdlib.Symbols)
 	template.MustParseString(`<$panic("Oh no")$>`)
-	var buf1 bytes.Buffer
-	_, err := template.Exec(&buf1, nil)
-	if !equalError(err, errors.New("Oh no")) {
-		t.Fatalf("expected Oh no, got %v", err)
-	}
+	var buf bytes.Buffer
+	_, err := template.Exec(&buf, nil)
+	require.EqualError(t, err, "Oh no")
 }
 
 func TestNoStartOrEnd(t *testing.T) {
@@ -386,11 +274,9 @@ func TestNoStartOrEnd(t *testing.T) {
 	template.StartTokens = []rune{}
 	template.EndTokens = []rune{}
 	template.MustParseString(`fmt.Printf(fmt.Sprintf("Hello %s", "World"))`)
-	var buf1 bytes.Buffer
-	template.MustExec(&buf1, nil)
-	if buf1.String() != "Hello World" {
-		t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-	}
+	var buf bytes.Buffer
+	template.MustExec(&buf, nil)
+	require.Equal(t, "Hello World", buf.String())
 }
 
 func TestImport(t *testing.T) {
@@ -425,17 +311,13 @@ func World() string {
 import "world"
 fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
 
-		var buf1 bytes.Buffer
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		var buf bytes.Buffer
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 
-		buf1.Reset()
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		buf.Reset()
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 	})
 
 	t.Run("multi import", func(t *testing.T) {
@@ -451,17 +333,13 @@ import (
 )
 fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
 
-		var buf1 bytes.Buffer
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		var buf bytes.Buffer
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 
-		buf1.Reset()
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		buf.Reset()
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 	})
 
 	t.Run("multi import", func(t *testing.T) {
@@ -480,17 +358,13 @@ import (
 )
 fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
 
-		var buf1 bytes.Buffer
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		var buf bytes.Buffer
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 
-		buf1.Reset()
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		buf.Reset()
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 	})
 
 	t.Run("alias import", func(t *testing.T) {
@@ -506,17 +380,13 @@ w "world"
 )
 fmt.Printf(fmt.Sprintf("Hello %s", w.World()))`)
 
-		var buf1 bytes.Buffer
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		var buf bytes.Buffer
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 
-		buf1.Reset()
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		buf.Reset()
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 	})
 
 	t.Run("alias dot import", func(t *testing.T) {
@@ -532,17 +402,13 @@ import (
 )
 fmt.Printf(fmt.Sprintf("Hello %s", World()))`)
 
-		var buf1 bytes.Buffer
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		var buf bytes.Buffer
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 
-		buf1.Reset()
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		buf.Reset()
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 	})
 
 	t.Run("package", func(t *testing.T) {
@@ -558,17 +424,13 @@ func main() {
 fmt.Printf(fmt.Sprintf("Hello %s", world.World()))
 }`)
 
-		var buf1 bytes.Buffer
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		var buf bytes.Buffer
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 
-		buf1.Reset()
-		template.MustExec(&buf1, nil)
-		if buf1.String() != "Hello World" {
-			t.Fatalf(`expected "Hello World", got %#v`, buf1.String())
-		}
+		buf.Reset()
+		template.MustExec(&buf, nil)
+		require.Equal(t, "Hello World", buf.String())
 	})
 }
 
@@ -618,9 +480,7 @@ func TestImplicitReturn(t *testing.T) {
 			template.MustParseString(fmt.Sprintf(`context["%s"]`, test.key))
 			var buf bytes.Buffer
 			template.MustExec(&buf, map[string]interface{}{test.key: test.value})
-			if buf.String() != test.expect {
-				t.Fatalf(`expected %#v, got %#v`, test.expect, buf.String())
-			}
+			require.Equal(t, test.expect, buf.String())
 		})
 	}
 }

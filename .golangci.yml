@@ -185,6 +185,10 @@ issues:
   max-same-issues: 0
 
   exclude-rules:
+    - text: "shadow: declaration of \"err\" shadows declaration at line"
+      linters:
+        - govet
+
     # Exclude some linters from running on tests files.
     - path: _test\.go
       linters:
