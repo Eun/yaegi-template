@@ -44,3 +44,41 @@ $>
 	})
 }
 ```
+
+## Example #2
+You can use `<$-` to strip white spaces before the code block and
+`-$>` to strip white spaces after the code block.  
+Also omitting the print statement for simple evaluations is possible.
+```go
+package main
+
+import (
+	"os"
+
+	"github.com/Eun/yaegi-template"
+	"github.com/traefik/yaegi/interp"
+	"github.com/traefik/yaegi/stdlib"
+)
+
+func main() {
+	template := yaegi_template.MustNew(interp.Options{}, stdlib.Symbols)
+	template.MustParseString(`
+<html>
+<p>
+<$-
+    context.UserName
+-$>
+</html>
+`)
+
+	type Context struct {
+		LoggedIn bool
+		UserName string
+	}
+
+	template.MustExec(os.Stdout, &Context{
+		LoggedIn: true,
+		UserName: "Joe Doe",
+	})
+}
+```
