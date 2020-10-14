@@ -312,8 +312,8 @@ type runeReader interface {
 	ReadRune() (rune, int, error)
 }
 
-func readRune(rd runeReader) (rune, int, error) {
-	r, size, err := rd.ReadRune()
+func readRune(rd runeReader) (r rune, size int, err error) {
+	r, size, err = rd.ReadRune()
 	if err == io.EOF {
 		r = unicode.ReplacementChar
 		size = 0
