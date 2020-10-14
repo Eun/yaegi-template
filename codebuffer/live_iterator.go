@@ -107,8 +107,7 @@ func (i *liveIterator) readTextBlock() (*Part, bool, error) {
 		if pos <= 0 {
 			return nil
 		}
-		_, err := writeRunes(&contentBuffer, seqBuffer[:pos])
-		if err != nil {
+		if err := writeRunes(&contentBuffer, seqBuffer[:pos]); err != nil {
 			return err
 		}
 		pos = 0
@@ -192,8 +191,7 @@ func (i *liveIterator) readCodeBlock() (*Part, bool, error) {
 		if pos < 0 {
 			return nil
 		}
-		_, err := writeRunes(&contentBuffer, seqBuffer[:pos])
-		if err != nil {
+		if err := writeRunes(&contentBuffer, seqBuffer[:pos]); err != nil {
 			return err
 		}
 		pos = 0
@@ -294,18 +292,13 @@ type runeWriter interface {
 	WriteRune(rune) (int, error)
 }
 
-func writeRunes(w runeWriter, runes []rune) (int, error) {
-	var total int
+func writeRunes(w runeWriter, runes []rune) error {
 	for _, r := range runes {
-		s, err := w.WriteRune(r)
-		if err != nil {
-			return 0, err
-		}
-		if s > 0 {
-			total += s
+		if _, err := w.WriteRune(r); err != nil {
+			return err
 		}
 	}
-	return total, nil
+	return nil
 }
 
 type runeReader interface {
