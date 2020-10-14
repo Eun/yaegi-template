@@ -18,8 +18,9 @@ import (
 
 	"go/ast"
 
-	"github.com/Eun/yaegi-template/codebuffer"
 	"github.com/traefik/yaegi/interp"
+
+	"github.com/Eun/yaegi-template/codebuffer"
 )
 
 type Template struct {
