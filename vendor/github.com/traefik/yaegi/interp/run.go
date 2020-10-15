@@ -1869,7 +1869,10 @@ func _return(n *node) {
 	case 0:
 		n.exec = nil
 	case 1:
-		if child[0].kind == binaryExpr || isCall(child[0]) {
+		// This is an optimisation that is applied for binary expressions or function
+		// calls, but not for (binary) expressions involving const, as the values are not
+		// stored in the frame in that case.
+		if !child[0].rval.IsValid() && child[0].kind == binaryExpr || isCall(child[0]) {
 			n.exec = nil
 		} else {
 			v := values[0]
@@ -2010,12 +2013,18 @@ func compositeBinMap(n *node) {
 	}
 }
 
-// compositeBinStruct creates and populates a struct object from a binary type.
-func compositeBinStruct(n *node) {
+// doCompositeBinStruct creates and populates a struct object from a binary type.
+func doCompositeBinStruct(n *node, hasType bool) {
 	next := getExec(n.tnext)
 	value := valueGenerator(n, n.findex)
 	typ := n.typ.rtype
-	child := n.child[1:]
+	if n.typ.cat == ptrT || n.typ.cat == aliasT {
+		typ = n.typ.val.rtype
+	}
+	child := n.child
+	if hasType {
+		child = n.child[1:]
+	}
 	values := make([]func(*frame) reflect.Value, len(child))
 	fieldIndex := make([][]int, len(child))
 	for i, c := range child {
@@ -2031,7 +2040,7 @@ func compositeBinStruct(n *node) {
 			}
 		} else {
 			fieldIndex[i] = []int{i}
-			if c.typ.cat == funcT {
+			if c.typ.cat == funcT && len(c.child) > 1 {
 				convertLiteralValue(c.child[1], typ.Field(i).Type)
 				values[i] = genFunctionWrapper(c.child[1])
 			} else {
@@ -2046,10 +2055,19 @@ func compositeBinStruct(n *node) {
 		for i, v := range values {
 			s.FieldByIndex(fieldIndex[i]).Set(v(f))
 		}
-		value(f).Set(s)
+		d := value(f)
+		switch {
+		case d.Type().Kind() == reflect.Ptr:
+			d.Set(s.Addr())
+		default:
+			d.Set(s)
+		}
 		return next
 	}
 }
+
+func compositeBinStruct(n *node)       { doCompositeBinStruct(n, true) }
+func compositeBinStructNotype(n *node) { doCompositeBinStruct(n, false) }
 
 func destType(n *node) *itype {
 	switch n.anc.kind {
@@ -2412,11 +2430,16 @@ func appendSlice(n *node) {
 }
 
 func _append(n *node) {
-	if c1, c2 := n.child[1], n.child[2]; len(n.child) == 3 && c2.typ.cat == arrayT && c2.typ.val.id() == n.typ.val.id() ||
-		isByteArray(c1.typ.TypeOf()) && isString(c2.typ.TypeOf()) {
-		appendSlice(n)
-		return
+	if len(n.child) == 3 {
+		c1, c2 := n.child[1], n.child[2]
+		if (c1.typ.cat == valueT || c2.typ.cat == valueT) && c1.typ.rtype == c2.typ.rtype ||
+			c2.typ.cat == arrayT && c2.typ.val.id() == n.typ.val.id() ||
+			isByteArray(c1.typ.TypeOf()) && isString(c2.typ.TypeOf()) {
+			appendSlice(n)
+			return
+		}
 	}
+
 	dest := genValueOutput(n, n.typ.rtype)
 	value := genValue(n.child[1])
 	next := getExec(n.tnext)
@@ -2951,37 +2974,40 @@ func _select(n *node) {
 	next := getExec(n.tnext)
 
 	for i := 0; i < nbClause; i++ {
-		if len(n.child[i].child) == 0 {
-			// The comm clause is an empty default, exit select.
+		cl := n.child[i]
+		if cl.kind == commClauseDefault {
 			cases[i].Dir = reflect.SelectDefault
-			clause[i] = func(*frame) bltn { return next }
-		} else {
-			switch c0 := n.child[i].child[0]; {
-			case len(n.child[i].child) > 1:
-				// The comm clause contains a channel operation and a clause body.
-				clause[i] = getExec(n.child[i].child[1].start)
-				chans[i], assigned[i], ok[i], cases[i].Dir = clauseChanDir(n.child[i])
-				chanValues[i] = genValue(chans[i])
-				if assigned[i] != nil {
-					assignedValues[i] = genValue(assigned[i])
-				}
-				if ok[i] != nil {
-					okValues[i] = genValue(ok[i])
-				}
-			case c0.kind == exprStmt && len(c0.child) == 1 && c0.child[0].action == aRecv:
-				// The comm clause has an empty body clause after channel receive.
-				chanValues[i] = genValue(c0.child[0].child[0])
-				cases[i].Dir = reflect.SelectRecv
-			case c0.kind == sendStmt:
-				// The comm clause as an empty body clause after channel send.
-				chanValues[i] = genValue(c0.child[0])
-				cases[i].Dir = reflect.SelectSend
-				assignedValues[i] = genValue(c0.child[1])
-			default:
-				// The comm clause has a default clause.
-				clause[i] = getExec(c0.start)
-				cases[i].Dir = reflect.SelectDefault
+			if len(cl.child) == 0 {
+				clause[i] = func(*frame) bltn { return next }
+			} else {
+				clause[i] = getExec(cl.child[0].start)
 			}
+			continue
+		}
+		// The comm clause is in send or recv direction.
+		switch c0 := cl.child[0]; {
+		case len(cl.child) > 1:
+			// The comm clause contains a channel operation and a clause body.
+			clause[i] = getExec(cl.child[1].start)
+			chans[i], assigned[i], ok[i], cases[i].Dir = clauseChanDir(c0)
+			chanValues[i] = genValue(chans[i])
+			if assigned[i] != nil {
+				assignedValues[i] = genValue(assigned[i])
+			}
+			if ok[i] != nil {
+				okValues[i] = genValue(ok[i])
+			}
+		case c0.kind == exprStmt && len(c0.child) == 1 && c0.child[0].action == aRecv:
+			// The comm clause has an empty body clause after channel receive.
+			chanValues[i] = genValue(c0.child[0].child[0])
+			cases[i].Dir = reflect.SelectRecv
+			clause[i] = func(*frame) bltn { return next }
+		case c0.kind == sendStmt:
+			// The comm clause as an empty body clause after channel send.
+			chanValues[i] = genValue(c0.child[0])
+			cases[i].Dir = reflect.SelectSend
+			assignedValues[i] = genValue(c0.child[1])
+			clause[i] = func(*frame) bltn { return next }
 		}
 	}
 

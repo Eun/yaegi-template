@@ -155,8 +155,9 @@ type Interpreter struct {
 }
 
 const (
-	mainID   = "main"
-	selfPath = "github.com/traefik/yaegi/interp"
+	mainID     = "main"
+	selfPrefix = "github.com/traefik/yaegi"
+	selfPath   = selfPrefix + "/interp"
 	// DefaultSourceName is the name used by default when the name of the input
 	// source file has not been specified for an Eval.
 	// TODO(mpl): something even more special as a name?
@@ -175,6 +176,7 @@ var Symbols = Exports{
 
 		"Interpreter": reflect.ValueOf((*Interpreter)(nil)),
 		"Options":     reflect.ValueOf((*Options)(nil)),
+		"Panic":       reflect.ValueOf((*Panic)(nil)),
 	},
 }
 
@@ -425,6 +427,8 @@ func (interp *Interpreter) Symbols(path string) map[string]reflect.Value {
 			m[n] = genFunctionWrapper(s.node)(interp.frame)
 		case varSym:
 			m[n] = interp.frame.data[s.index]
+		case typeSym:
+			m[n] = reflect.New(s.typ.TypeOf())
 		}
 	}
 	return m
@@ -603,7 +607,7 @@ func (interp *Interpreter) getWrapper(t reflect.Type) reflect.Type {
 // they can be used in interpreted code.
 func (interp *Interpreter) Use(values Exports) {
 	for k, v := range values {
-		if k == hooksPath {
+		if k == selfPrefix {
 			interp.hooks.Parse(v)
 			continue
 		}
@@ -785,20 +789,28 @@ func (interp *Interpreter) REPL() (reflect.Value, error) {
 	}
 }
 
+func doPrompt(out io.Writer) func(v reflect.Value) {
+	return func(v reflect.Value) {
+		if v.IsValid() {
+			fmt.Fprintln(out, ":", v)
+		}
+		fmt.Fprint(out, "> ")
+	}
+}
+
 // getPrompt returns a function which prints a prompt only if input is a terminal.
 func getPrompt(in io.Reader, out io.Writer) func(reflect.Value) {
+	forcePrompt, _ := strconv.ParseBool(os.Getenv("YAEGI_PROMPT"))
+	if forcePrompt {
+		return doPrompt(out)
+	}
 	s, ok := in.(interface{ Stat() (os.FileInfo, error) })
 	if !ok {
 		return func(reflect.Value) {}
 	}
 	stat, err := s.Stat()
 	if err == nil && stat.Mode()&os.ModeCharDevice != 0 {
-		return func(v reflect.Value) {
-			if v.IsValid() {
-				fmt.Fprintln(out, ":", v)
-			}
-			fmt.Fprint(out, "> ")
-		}
+		return doPrompt(out)
 	}
 	return func(reflect.Value) {}
 }
