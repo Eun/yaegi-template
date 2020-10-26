@@ -91,7 +91,10 @@ func (check typecheck) addressExpr(n *node) error {
 		case selectorExpr:
 			c0 = c0.child[1]
 			continue
-		case indexExpr:
+		case starExpr:
+			c0 = c0.child[0]
+			continue
+		case indexExpr, sliceExpr:
 			c := c0.child[0]
 			if isArray(c.typ) || isMap(c.typ) {
 				c0 = c
@@ -101,7 +104,7 @@ func (check typecheck) addressExpr(n *node) error {
 			found = true
 			continue
 		}
-		return n.cfgErrorf("invalid operation: cannot take address of %s", c0.typ.id())
+		return n.cfgErrorf("invalid operation: cannot take address of %s [kind: %s]", c0.typ.id(), kinds[c0.kind])
 	}
 	return nil
 }
@@ -148,7 +151,7 @@ func (check typecheck) shift(n *node) error {
 	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
 	var v0 constant.Value
-	if c0.typ.untyped {
+	if c0.typ.untyped && c0.rval.IsValid() {
 		v0 = constant.ToInt(c0.rval.Interface().(constant.Value))
 		c0.rval = reflect.ValueOf(v0)
 	}
@@ -483,7 +486,7 @@ func (check typecheck) sliceExpr(n *node) error {
 	case reflect.Array:
 		valid = true
 		l = t.Len()
-		if c.kind != selectorExpr && (c.sym == nil || c.sym.kind != varSym) {
+		if c.kind != indexExpr && c.kind != selectorExpr && (c.sym == nil || c.sym.kind != varSym) {
 			return c.cfgErrorf("cannot slice type %s", c.typ.id())
 		}
 	case reflect.Slice:
