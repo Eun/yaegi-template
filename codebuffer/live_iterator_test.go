@@ -256,6 +256,36 @@ func TestLiveIterator(t *testing.T) {
 				},
 			},
 		},
+		{
+			"Reset Strip WhiteSpaces",
+			`<$-import "time"-$>
+Foo:<$Bar$>
+Baz:<$Taz$>`,
+			[]rune("<$"),
+			[]rune("$>"),
+			[]*Part{
+				{
+					Type:    CodePartType,
+					Content: []byte(`import "time"`),
+				},
+				{
+					Type:    TextPartType,
+					Content: []byte("Foo:"),
+				},
+				{
+					Type:    CodePartType,
+					Content: []byte("Bar"),
+				},
+				{
+					Type:    TextPartType,
+					Content: []byte("\nBaz:"),
+				},
+				{
+					Type:    CodePartType,
+					Content: []byte("Taz"),
+				},
+			},
+		},
 	}
 
 	for _, test := range tests {
