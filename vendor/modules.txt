@@ -6,7 +6,7 @@ github.com/pmezard/go-difflib/difflib
 ## explicit
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# github.com/traefik/yaegi v0.9.4
+# github.com/traefik/yaegi v0.9.5
 ## explicit
 github.com/traefik/yaegi/interp
 github.com/traefik/yaegi/stdlib

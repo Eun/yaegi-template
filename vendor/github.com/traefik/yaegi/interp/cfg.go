@@ -66,6 +66,41 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			return false
 		}
 		switch n.kind {
+		case binaryExpr, unaryExpr, parenExpr:
+			if isBoolAction(n) {
+				break
+			}
+			// Gather assigned type if set, to give context for type propagation at post-order.
+			switch n.anc.kind {
+			case assignStmt, defineStmt:
+				a := n.anc
+				i := childPos(n) - a.nright
+				if len(a.child) > a.nright+a.nleft {
+					i--
+				}
+				dest := a.child[i]
+				if dest.typ != nil && !isInterface(dest.typ) {
+					// Interface type are not propagated, and will be resolved at post-order.
+					n.typ = dest.typ
+				}
+			case binaryExpr, unaryExpr, parenExpr:
+				n.typ = n.anc.typ
+			}
+
+		case defineStmt:
+			// Determine type of variables initialized at declaration, so it can be propagated.
+			if n.nleft+n.nright == len(n.child) {
+				// No type was specified on the left hand side, it will resolved at post-order.
+				break
+			}
+			n.typ, err = nodeType(interp, sc, n.child[n.nleft])
+			if err != nil {
+				break
+			}
+			for i := 0; i < n.nleft; i++ {
+				n.child[i].typ = n.typ
+			}
+
 		case blockStmt:
 			if n.anc != nil && n.anc.kind == rangeStmt {
 				// For range block: ensure that array or map type is propagated to iterators
@@ -285,11 +320,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				}
 			}
 
-		case forStmt0, forRangeStmt:
-			sc = sc.pushBloc()
-			sc.loop, sc.loopRestart = n, n.child[0]
-
-		case forStmt1, forStmt2, forStmt3, forStmt3a, forStmt4:
+		case forStmt0, forStmt1, forStmt2, forStmt3, forStmt4, forStmt5, forStmt6, forStmt7, forRangeStmt:
 			sc = sc.pushBloc()
 			sc.loop, sc.loopRestart = n, n.lastChild()
 
@@ -447,7 +478,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			var atyp *itype
 			if n.nleft+n.nright < len(n.child) {
 				if atyp, err = nodeType(interp, sc, n.child[n.nleft]); err != nil {
-					return
+					break
 				}
 			}
 
@@ -644,7 +675,12 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			}
 
 			switch n.action {
-			case aRem, aShl, aShr:
+			case aRem:
+				n.typ = c0.typ
+			case aShl, aShr:
+				if c0.typ.untyped {
+					break
+				}
 				n.typ = c0.typ
 			case aEqual, aNotEqual:
 				n.typ = sc.getType("bool")
@@ -860,7 +896,12 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 					n.gen = nop
 					n.findex = -1
 					n.typ = c0.typ
-					n.rval = c1.rval.Convert(c0.typ.rtype)
+					if c, ok := c1.rval.Interface().(constant.Value); ok {
+						i, _ := constant.Int64Val(constant.ToInt(c))
+						n.rval = reflect.ValueOf(i).Convert(c0.typ.rtype)
+					} else {
+						n.rval = c1.rval.Convert(c0.typ.rtype)
+					}
 				default:
 					n.gen = convert
 					n.typ = c0.typ
@@ -1005,7 +1046,14 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			body.tnext = n.start
 			sc = sc.pop()
 
-		case forStmt1: // for cond {}
+		case forStmt1: // for init; ; {}
+			init, body := n.child[0], n.child[1]
+			n.start = init.start
+			init.tnext = body.start
+			body.tnext = n.start
+			sc = sc.pop()
+
+		case forStmt2: // for cond {}
 			cond, body := n.child[0], n.child[1]
 			if !isBool(cond.typ) {
 				err = cond.cfgErrorf("non-bool used as for condition")
@@ -1024,7 +1072,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			setFNext(cond, n)
 			sc = sc.pop()
 
-		case forStmt2: // for init; cond; {}
+		case forStmt3: // for init; cond; {}
 			init, cond, body := n.child[0], n.child[1], n.child[2]
 			if !isBool(cond.typ) {
 				err = cond.cfgErrorf("non-bool used as for condition")
@@ -1046,7 +1094,14 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			setFNext(cond, n)
 			sc = sc.pop()
 
-		case forStmt3: // for ; cond; post {}
+		case forStmt4: // for ; ; post {}
+			post, body := n.child[0], n.child[1]
+			n.start = body.start
+			post.tnext = body.start
+			body.tnext = post.start
+			sc = sc.pop()
+
+		case forStmt5: // for ; cond; post {}
 			cond, post, body := n.child[0], n.child[1], n.child[2]
 			if !isBool(cond.typ) {
 				err = cond.cfgErrorf("non-bool used as for condition")
@@ -1066,7 +1121,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			body.tnext = post.start
 			sc = sc.pop()
 
-		case forStmt3a: // for init; ; post {}
+		case forStmt6: // for init; ; post {}
 			init, post, body := n.child[0], n.child[1], n.child[2]
 			n.start = init.start
 			init.tnext = body.start
@@ -1074,7 +1129,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			post.tnext = body.start
 			sc = sc.pop()
 
-		case forStmt4: // for init; cond; post {}
+		case forStmt7: // for init; cond; post {}
 			init, cond, post, body := n.child[0], n.child[1], n.child[2], n.child[3]
 			if !isBool(cond.typ) {
 				err = cond.cfgErrorf("non-bool used as for condition")
@@ -2462,6 +2517,15 @@ func isValueUntyped(v reflect.Value) bool {
 func isArithmeticAction(n *node) bool {
 	switch n.action {
 	case aAdd, aAnd, aAndNot, aBitNot, aMul, aQuo, aRem, aShl, aShr, aSub, aXor:
+		return true
+	default:
+		return false
+	}
+}
+
+func isBoolAction(n *node) bool {
+	switch n.action {
+	case aEqual, aGreater, aGreaterEqual, aLand, aLor, aLower, aLowerEqual, aNot, aNotEqual:
 		return true
 	default:
 		return false

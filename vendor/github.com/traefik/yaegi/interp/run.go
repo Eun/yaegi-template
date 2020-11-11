@@ -108,10 +108,53 @@ func (interp *Interpreter) run(n *node, cf *frame) {
 	runCfg(n.start, f)
 }
 
+// originalExecNode looks in the tree of nodes for the node which has exec,
+// aside from n, in order to know where n "inherited" that exec from.
+func originalExecNode(n *node, exec bltn) *node {
+	execAddr := reflect.ValueOf(exec).Pointer()
+	var originalNode *node
+	seen := make(map[int64]struct{})
+	root := n
+	for {
+		root = root.anc
+		if root == nil {
+			break
+		}
+		if _, ok := seen[root.index]; ok {
+			continue
+		}
+
+		root.Walk(func(wn *node) bool {
+			if _, ok := seen[wn.index]; ok {
+				return true
+			}
+			seen[wn.index] = struct{}{}
+			if wn.index == n.index {
+				return true
+			}
+			if wn.exec == nil {
+				return true
+			}
+			if reflect.ValueOf(wn.exec).Pointer() == execAddr {
+				originalNode = wn
+				return false
+			}
+			return true
+		}, nil)
+
+		if originalNode != nil {
+			break
+		}
+	}
+
+	return originalNode
+}
+
 // Functions set to run during execution of CFG.
 
 // runCfg executes a node AST by walking its CFG and running node builtin at each step.
 func runCfg(n *node, f *frame) {
+	var exec bltn
 	defer func() {
 		f.mutex.Lock()
 		f.recovered = recover()
@@ -119,14 +162,18 @@ func runCfg(n *node, f *frame) {
 			val[0].Call(val[1:])
 		}
 		if f.recovered != nil {
-			fmt.Println(n.cfgErrorf("panic"))
+			oNode := originalExecNode(n, exec)
+			if oNode == nil {
+				oNode = n
+			}
+			fmt.Println(oNode.cfgErrorf("panic"))
 			f.mutex.Unlock()
 			panic(f.recovered)
 		}
 		f.mutex.Unlock()
 	}()
 
-	for exec := n.exec; exec != nil && f.runid() == n.interp.runid(); {
+	for exec = n.exec; exec != nil && f.runid() == n.interp.runid(); {
 		exec = exec(f)
 	}
 }
@@ -338,6 +385,21 @@ func convert(n *node) {
 		}
 		n.exec = func(f *frame) bltn {
 			dest(f).Set(reflect.New(typ).Elem())
+			return next
+		}
+		return
+	}
+
+	if n.child[0].typ.cat == funcT && c.typ.cat == funcT {
+		value := genValue(c)
+		n.exec = func(f *frame) bltn {
+			n, ok := value(f).Interface().(*node)
+			if !ok || !n.typ.convertibleTo(c.typ) {
+				panic("cannot convert")
+			}
+			n1 := *n
+			n1.typ = c.typ
+			dest(f).Set(reflect.ValueOf(&n1))
 			return next
 		}
 		return
@@ -1719,6 +1781,11 @@ func neg(n *node) {
 			dest(f).SetInt(-value(f).Int())
 			return next
 		}
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
+		n.exec = func(f *frame) bltn {
+			dest(f).SetUint(-value(f).Uint())
+			return next
+		}
 	case reflect.Float32, reflect.Float64:
 		n.exec = func(f *frame) bltn {
 			dest(f).SetFloat(-value(f).Float())
@@ -2104,16 +2171,20 @@ func doComposite(n *node, hasType bool, keyed bool) {
 			val = c
 			fieldIndex = i
 		}
-		convertLiteralValue(val, typ.field[fieldIndex].typ.TypeOf())
+		ft := typ.field[fieldIndex].typ
+		rft := ft.TypeOf()
+		convertLiteralValue(val, rft)
 		switch {
+		case val.typ.cat == nilT:
+			values[fieldIndex] = func(*frame) reflect.Value { return reflect.New(rft).Elem() }
 		case val.typ.cat == funcT:
 			values[fieldIndex] = genFunctionWrapper(val)
 		case isArray(val.typ) && val.typ.val != nil && val.typ.val.cat == interfaceT:
 			values[fieldIndex] = genValueInterfaceArray(val)
-		case isRecursiveType(typ.field[fieldIndex].typ, typ.field[fieldIndex].typ.rtype):
-			values[fieldIndex] = genValueRecursiveInterface(val, typ.field[fieldIndex].typ.rtype)
-		case isInterface(typ.field[fieldIndex].typ):
-			values[fieldIndex] = genInterfaceWrapper(val, typ.field[fieldIndex].typ.rtype)
+		case isRecursiveType(ft, rft):
+			values[fieldIndex] = genValueRecursiveInterface(val, rft)
+		case isInterface(ft):
+			values[fieldIndex] = genInterfaceWrapper(val, rft)
 		default:
 			values[fieldIndex] = genValue(val)
 		}
@@ -3087,9 +3158,9 @@ func isNil(n *node) {
 		fnext := getExec(n.fnext)
 		if c0.typ.cat == interfaceT {
 			n.exec = func(f *frame) bltn {
-				vi := value(f).Interface().(valueInterface)
-				if (vi == valueInterface{} ||
-					vi.node.kind == basicLit && vi.node.typ.cat == nilT) {
+				v := value(f)
+				vi, ok := v.Interface().(valueInterface)
+				if ok && (vi == valueInterface{} || vi.node.kind == basicLit && vi.node.typ.cat == nilT) || v.IsNil() {
 					dest(f).SetBool(true)
 					return tnext
 				}
@@ -3109,7 +3180,12 @@ func isNil(n *node) {
 	} else {
 		if c0.typ.cat == interfaceT {
 			n.exec = func(f *frame) bltn {
-				dest(f).SetBool(value(f).Interface().(valueInterface) == valueInterface{})
+				v := value(f)
+				if vi, ok := v.Interface().(valueInterface); ok {
+					dest(f).SetBool(vi == valueInterface{} || vi.node.kind == basicLit && vi.node.typ.cat == nilT)
+				} else {
+					dest(f).SetBool(v.IsNil())
+				}
 				return tnext
 			}
 		} else {
@@ -3136,9 +3212,9 @@ func isNotNil(n *node) {
 		fnext := getExec(n.fnext)
 		if c0.typ.cat == interfaceT {
 			n.exec = func(f *frame) bltn {
-				vi := value(f).Interface().(valueInterface)
-				if (vi == valueInterface{} ||
-					vi.node.kind == basicLit && vi.node.typ.cat == nilT) {
+				v := value(f)
+				vi, ok := v.Interface().(valueInterface)
+				if ok && (vi == valueInterface{} || vi.node.kind == basicLit && vi.node.typ.cat == nilT) || v.IsNil() {
 					dest(f).SetBool(false)
 					return fnext
 				}
@@ -3158,7 +3234,12 @@ func isNotNil(n *node) {
 	} else {
 		if c0.typ.cat == interfaceT {
 			n.exec = func(f *frame) bltn {
-				dest(f).SetBool(!(value(f).Interface().(valueInterface) == valueInterface{}))
+				v := value(f)
+				if vi, ok := v.Interface().(valueInterface); ok {
+					dest(f).SetBool(!(vi == valueInterface{} || vi.node.kind == basicLit && vi.node.typ.cat == nilT))
+				} else {
+					dest(f).SetBool(!v.IsNil())
+				}
 				return tnext
 			}
 		} else {
