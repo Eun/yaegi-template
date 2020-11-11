@@ -14,5 +14,7 @@ github.com/traefik/yaegi v0.9.3 h1:R9PZt0lB2LqspX4hGUQLq+c4sWBVVHPSKN7AxHnEs5E=
 github.com/traefik/yaegi v0.9.3/go.mod h1:FAYnRlZyuVlEkvnkHq3bvJ1lW5be6XuwgLdkYgYG6Lk=
 github.com/traefik/yaegi v0.9.4 h1:ZyxSsvpzZTTTbvE2ODjRkOvq6kYT3dIZDqUfCZJYDtw=
 github.com/traefik/yaegi v0.9.4/go.mod h1:FAYnRlZyuVlEkvnkHq3bvJ1lW5be6XuwgLdkYgYG6Lk=
+github.com/traefik/yaegi v0.9.5 h1:mRJtmV6t/wecIq6Gfs0DpdSC2AjFpPRjoiBXP03OIz0=
+github.com/traefik/yaegi v0.9.5/go.mod h1:FAYnRlZyuVlEkvnkHq3bvJ1lW5be6XuwgLdkYgYG6Lk=
 go.uber.org/atomic v1.7.0 h1:ADUqmZGgLDDfbSL9ZmPxKTybcoEYHgpYfELNoN+7hsw=
 go.uber.org/atomic v1.7.0/go.mod h1:fEN4uk6kAWBTFdckzkM89CLk9XfWZrxpCo0nPH17wJc=

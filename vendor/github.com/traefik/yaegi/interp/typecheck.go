@@ -217,6 +217,7 @@ var binaryOpPredicates = opPredicates{
 // binaryExpr type checks a binary expression.
 func (check typecheck) binaryExpr(n *node) error {
 	c0, c1 := n.child[0], n.child[1]
+
 	a := n.action
 	if isAssignAction(a) {
 		a--
@@ -224,6 +225,21 @@ func (check typecheck) binaryExpr(n *node) error {
 
 	if isShiftAction(a) {
 		return check.shift(n)
+	}
+
+	switch n.action {
+	case aRem:
+		if zeroConst(c1) {
+			return n.cfgErrorf("invalid operation: division by zero")
+		}
+	case aQuo:
+		if zeroConst(c1) {
+			return n.cfgErrorf("invalid operation: division by zero")
+		}
+		if c0.rval.IsValid() && c1.rval.IsValid() {
+			// Avoid constant conversions below to ensure correct constant integer quotient.
+			return nil
+		}
 	}
 
 	_ = check.convertUntyped(c0, c1.typ)
@@ -241,14 +257,11 @@ func (check typecheck) binaryExpr(n *node) error {
 	if err := check.op(binaryOpPredicates, a, n, c0, t0); err != nil {
 		return err
 	}
-
-	switch n.action {
-	case aQuo, aRem:
-		if (c0.typ.untyped || isInt(t0)) && c1.typ.untyped && constant.Sign(c1.rval.Interface().(constant.Value)) == 0 {
-			return n.cfgErrorf("invalid operation: division by zero")
-		}
-	}
 	return nil
+}
+
+func zeroConst(n *node) bool {
+	return n.typ.untyped && constant.Sign(n.rval.Interface().(constant.Value)) == 0
 }
 
 func (check typecheck) index(n *node, max int) error {
@@ -621,16 +634,13 @@ func (check typecheck) conversion(n *node, typ *itype) error {
 	if !ok {
 		return n.cfgErrorf("cannot convert expression of type %s to type %s", n.typ.id(), typ.id())
 	}
-
-	if n.typ.untyped {
-		if isInterface(typ) || c != nil && !isConstType(typ) {
-			typ = n.typ.defaultType()
-		}
-		if err := check.convertUntyped(n, typ); err != nil {
-			return err
-		}
+	if !n.typ.untyped || c == nil {
+		return nil
 	}
-	return nil
+	if isInterface(typ) || !isConstType(typ) {
+		typ = n.typ.defaultType()
+	}
+	return check.convertUntyped(n, typ)
 }
 
 type param struct {
