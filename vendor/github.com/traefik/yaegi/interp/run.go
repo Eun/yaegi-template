@@ -405,10 +405,15 @@ func convert(n *node) {
 		return
 	}
 
+	doConvert := true
 	var value func(*frame) reflect.Value
-	if c.typ.cat == funcT {
+	switch {
+	case c.typ.cat == funcT:
 		value = genFunctionWrapper(c)
-	} else {
+	case n.child[0].typ.cat == funcT && c.typ.cat == valueT:
+		doConvert = false
+		value = genValueNode(c)
+	default:
 		value = genValue(c)
 	}
 
@@ -429,7 +434,11 @@ func convert(n *node) {
 	}
 
 	n.exec = func(f *frame) bltn {
-		dest(f).Set(value(f).Convert(typ))
+		if doConvert {
+			dest(f).Set(value(f).Convert(typ))
+		} else {
+			dest(f).Set(value(f))
+		}
 		return next
 	}
 }
@@ -1178,6 +1187,7 @@ func callBin(n *node) {
 					c.val = reflect.Zero(argType)
 				}
 			}
+
 			switch c.typ.cat {
 			case funcT:
 				values = append(values, genFunctionWrapper(c))
@@ -1190,6 +1200,14 @@ func callBin(n *node) {
 				default:
 					values = append(values, genInterfaceWrapper(c, defType))
 				}
+			case ptrT:
+				if c.typ.val.cat == valueT {
+					values = append(values, genValue(c))
+				} else {
+					values = append(values, genInterfaceWrapper(c, defType))
+				}
+			case valueT:
+				values = append(values, genValue(c))
 			default:
 				values = append(values, genInterfaceWrapper(c, defType))
 			}
