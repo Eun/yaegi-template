@@ -194,7 +194,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 
 		case breakStmt, continueStmt, gotoStmt:
 			if len(n.child) > 0 {
-				// Handle labeled statements
+				// Handle labeled statements.
 				label := n.child[0].ident
 				if sym, _, ok := sc.lookup(label); ok {
 					if sym.kind != labelSym {
@@ -211,25 +211,23 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 
 		case labeledStmt:
 			label := n.child[0].ident
-			if sym, _, ok := sc.lookup(label); ok {
-				if sym.kind != labelSym {
-					err = n.child[0].cfgErrorf("label %s not defined", label)
-					break
-				}
+			// TODO(marc): labels must be stored outside of symbols to avoid collisions
+			// Used labels are searched in current and sub scopes, not upper ones.
+			if sym, ok := sc.lookdown(label); ok {
 				sym.node = n
 				n.sym = sym
 			} else {
 				n.sym = &symbol{kind: labelSym, node: n, index: -1}
-				sc.sym[label] = n.sym
 			}
+			sc.sym[label] = n.sym
 
 		case caseClause:
 			sc = sc.pushBloc()
 			if sn := n.anc.anc; sn.kind == typeSwitch && sn.child[1].action == aAssign {
-				// Type switch clause with a var defined in switch guard
+				// Type switch clause with a var defined in switch guard.
 				var typ *itype
 				if len(n.child) == 2 {
-					// 1 type in clause: define the var with this type in the case clause scope
+					// 1 type in clause: define the var with this type in the case clause scope.
 					switch {
 					case n.child[0].ident == nilIdent:
 						typ = sc.getType("interface{}")
@@ -239,7 +237,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 						typ, err = nodeType(interp, sc, n.child[0])
 					}
 				} else {
-					// define the var with the type in the switch guard expression
+					// Define the var with the type in the switch guard expression.
 					typ = sn.child[1].child[1].child[0].typ
 				}
 				if err != nil {
@@ -1381,7 +1379,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			n.val = sc.def
 			for i, c := range n.child {
 				var typ *itype
-				typ, err = nodeType(interp, sc, returnSig.child[1].fieldType(i))
+				typ, err = nodeType(interp, sc.upperLevel(), returnSig.child[1].fieldType(i))
 				if err != nil {
 					return
 				}
@@ -2333,7 +2331,7 @@ func isCall(n *node) bool {
 }
 
 func isBinCall(n *node) bool {
-	return n.kind == callExpr && n.child[0].typ.cat == valueT && n.child[0].typ.rtype.Kind() == reflect.Func
+	return isCall(n) && n.child[0].typ.cat == valueT && n.child[0].typ.rtype.Kind() == reflect.Func
 }
 
 func mustReturnValue(n *node) bool {
@@ -2349,7 +2347,7 @@ func mustReturnValue(n *node) bool {
 }
 
 func isRegularCall(n *node) bool {
-	return n.kind == callExpr && n.child[0].typ.cat == funcT
+	return isCall(n) && n.child[0].typ.cat == funcT
 }
 
 func variadicPos(n *node) int {
