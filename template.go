@@ -1,4 +1,4 @@
-// package yaegi_template is a package that provides a templating engine using yeagi.
+// Package yaegi_template is a package that provides a templating engine using yeagi.
 // yaegi is a golang interpreter and can be used to run go code inside an go application.
 //
 // Example usage:
@@ -217,7 +217,7 @@ func (t *Template) MustParseString(s string) *Template {
 
 // MustParseBytes is like ParseBytes, except it panics on failure.
 func (t *Template) MustParseBytes(b []byte) error {
-	if err := t.MustParseBytes(b); err != nil {
+	if err := t.ParseBytes(b); err != nil {
 		panic(err.Error())
 	}
 	return nil

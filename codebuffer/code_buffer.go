@@ -1,3 +1,5 @@
+// Package codebuffer is a package that provides a method to read trough a reader and separate the contents into
+// code and text parts.
 package codebuffer
 
 import (
