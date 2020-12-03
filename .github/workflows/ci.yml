@@ -47,9 +47,7 @@ jobs:
         uses: actions/checkout@v2
       -
         name: Test
-        run: make test
-        env:
-          GO_TEST_COVER_ARGS: -coverprofile="coverage-${{ matrix.platform }}-${{ matrix.go-version }}.txt" -covermode=atomic
+        run: go test -v -count=1 -coverprofile="coverage-${{ matrix.platform }}-${{ matrix.go-version }}.txt" -covermode=atomic
       -
         name: Send coverage
         uses: shogo82148/actions-goveralls@v1
