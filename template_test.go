@@ -1,6 +1,7 @@
 package yaegi_template
 
 import (
+	"io"
 	"testing"
 
 	"bytes"
@@ -483,4 +484,12 @@ func TestImplicitReturn(t *testing.T) {
 			require.Equal(t, test.expect, buf.String())
 		})
 	}
+}
+
+func TestTemplate_LazyParse(t *testing.T) {
+	buf := bytes.NewReader([]byte("Hello World"))
+	MustNew(DefaultOptions(), DefaultImports()...).MustLazyParse(buf)
+	pos, err := buf.Seek(0, io.SeekCurrent)
+	require.NoError(t, err)
+	require.Equal(t, int64(0), pos)
 }

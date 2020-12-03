@@ -3,10 +3,12 @@ package interp
 //go:generate go run ../internal/cmd/genop/genop.go
 
 import (
+	"errors"
 	"fmt"
 	"go/constant"
 	"log"
 	"reflect"
+	"regexp"
 	"sync"
 	"unsafe"
 )
@@ -67,9 +69,20 @@ var builtin = [...]bltnGenerator{
 	aStar:         deref,
 	aSub:          sub,
 	aSubAssign:    subAssign,
-	aTypeAssert:   typeAssert,
+	aTypeAssert:   typeAssert1,
 	aXor:          xor,
 	aXorAssign:    xorAssign,
+}
+
+var receiverStripperRxp *regexp.Regexp
+
+func init() {
+	re := `func\(((.*?(, |\)))(.*))`
+	var err error
+	receiverStripperRxp, err = regexp.Compile(re)
+	if err != nil {
+		panic(err)
+	}
 }
 
 type valueInterface struct {
@@ -217,79 +230,39 @@ func typeAssertStatus(n *node) {
 	}
 }
 
-func typeAssert(n *node) {
-	c0, c1 := n.child[0], n.child[1]
-	value := genValue(c0) // input value
-	value0 := genValue(n) // returned result
-	next := getExec(n.tnext)
-
-	switch {
-	case isInterfaceSrc(c1.typ):
-		typ := n.child[1].typ
-		typID := n.child[1].typ.id()
-		n.exec = func(f *frame) bltn {
-			v := value(f)
-			vi, ok := v.Interface().(valueInterface)
-			if !ok {
-				panic(n.cfgErrorf("interface conversion: nil is not %v", typID))
-			}
-			if !vi.node.typ.implements(typ) {
-				panic(n.cfgErrorf("interface conversion: %v is not %v", vi.node.typ.id(), typID))
-			}
-			value0(f).Set(v)
-			return next
-		}
-	case isInterface(c1.typ):
-		n.exec = func(f *frame) bltn {
-			v := value(f).Elem()
-			typ := value0(f).Type()
-			if !v.IsValid() {
-				panic(fmt.Sprintf("interface conversion: interface {} is nil, not %s", typ.String()))
-			}
-			if !canAssertTypes(v.Type(), typ) {
-				method := firstMissingMethod(v.Type(), typ)
-				panic(fmt.Sprintf("interface conversion: %s is not %s: missing method %s", v.Type().String(), typ.String(), method))
-			}
-			value0(f).Set(v)
-			return next
-		}
-	case c0.typ.cat == valueT || c0.typ.cat == errorT:
-		n.exec = func(f *frame) bltn {
-			v := value(f).Elem()
-			typ := value0(f).Type()
-			if !v.IsValid() {
-				panic(fmt.Sprintf("interface conversion: interface {} is nil, not %s", typ.String()))
-			}
-			if !canAssertTypes(v.Type(), typ) {
-				method := firstMissingMethod(v.Type(), typ)
-				panic(fmt.Sprintf("interface conversion: %s is not %s: missing method %s", v.Type().String(), typ.String(), method))
-			}
-			value0(f).Set(v)
-			return next
-		}
-	default:
-		n.exec = func(f *frame) bltn {
-			v := value(f).Interface().(valueInterface)
-			typ := value0(f).Type()
-			if !v.value.IsValid() {
-				panic(fmt.Sprintf("interface conversion: interface {} is nil, not %s", typ.String()))
-			}
-			if !canAssertTypes(v.value.Type(), typ) {
-				panic(fmt.Sprintf("interface conversion: interface {} is %s, not %s", v.value.Type().String(), typ.String()))
-			}
-			value0(f).Set(v.value)
-			return next
-		}
+func stripReceiverFromArgs(signature string) (string, error) {
+	fields := receiverStripperRxp.FindStringSubmatch(signature)
+	if len(fields) < 5 {
+		return "", errors.New("error while matching method signature")
 	}
+	if fields[3] == ")" {
+		return fmt.Sprintf("func()%s", fields[4]), nil
+	}
+	return fmt.Sprintf("func(%s", fields[4]), nil
+}
+
+func typeAssert1(n *node) {
+	typeAssert(n, false)
 }
 
 func typeAssert2(n *node) {
+	typeAssert(n, true)
+}
+
+func typeAssert(n *node, withOk bool) {
 	c0, c1 := n.child[0], n.child[1]
-	value := genValue(c0)                    // input value
-	value0 := genValue(n.anc.child[0])       // returned result
-	value1 := genValue(n.anc.child[1])       // returned status
-	setStatus := n.anc.child[1].ident != "_" // do not assign status to "_"
-	typ := c1.typ                            // type to assert or convert to
+	value := genValue(c0) // input value
+	var value0, value1 func(*frame) reflect.Value
+	setStatus := false
+	if withOk {
+		value0 = genValue(n.anc.child[0])       // returned result
+		value1 = genValue(n.anc.child[1])       // returned status
+		setStatus = n.anc.child[1].ident != "_" // do not assign status to "_"
+	} else {
+		value0 = genValue(n) // returned result
+	}
+
+	typ := c1.typ // type to assert or convert to
 	typID := typ.id()
 	rtype := typ.rtype // type to assert
 	next := getExec(n.tnext)
@@ -298,50 +271,179 @@ func typeAssert2(n *node) {
 	case isInterfaceSrc(typ):
 		n.exec = func(f *frame) bltn {
 			v, ok := value(f).Interface().(valueInterface)
-			if ok && v.node.typ.id() == typID {
-				value0(f).Set(value(f))
-			} else {
-				ok = false
-			}
 			if setStatus {
-				value1(f).SetBool(ok)
+				defer func() {
+					value1(f).SetBool(ok)
+				}()
 			}
+			if !ok {
+				if !withOk {
+					panic(n.cfgErrorf("interface conversion: nil is not %v", typID))
+				}
+				return next
+			}
+			if v.node.typ.id() == typID {
+				value0(f).Set(value(f))
+				return next
+			}
+			m0 := v.node.typ.methods()
+			m1 := typ.methods()
+			if len(m0) < len(m1) {
+				ok = false
+				if !withOk {
+					panic(n.cfgErrorf("interface conversion: %v is not %v", v.node.typ.id(), typID))
+				}
+				return next
+			}
+
+			for k, meth1 := range m1 {
+				var meth0 string
+				meth0, ok = m0[k]
+				if !ok {
+					return next
+				}
+				// As far as we know this equality check can fail because they are two ways to
+				// represent the signature of a method: one where the receiver appears before the
+				// func keyword, and one where it is just a func signature, and the receiver is
+				// seen as the first argument. That's why if that equality fails, we try harder to
+				// compare them afterwards. Hopefully that is the only reason this equality can fail.
+				if meth0 == meth1 {
+					continue
+				}
+				tm := lookupFieldOrMethod(v.node.typ, k)
+				if tm == nil {
+					ok = false
+					return next
+				}
+
+				var err error
+				meth0, err = stripReceiverFromArgs(meth0)
+				if err != nil {
+					ok = false
+					return next
+				}
+
+				if meth0 != meth1 {
+					ok = false
+					return next
+				}
+			}
+
+			value0(f).Set(value(f))
 			return next
 		}
 	case isInterface(typ):
 		n.exec = func(f *frame) bltn {
-			v := value(f).Elem()
-			ok := v.IsValid() && canAssertTypes(v.Type(), rtype)
-			if ok {
-				value0(f).Set(v)
-			}
+			var leftType reflect.Type
+			v := value(f)
+			val, ok := v.Interface().(valueInterface)
 			if setStatus {
-				value1(f).SetBool(ok)
+				defer func() {
+					value1(f).SetBool(ok)
+				}()
 			}
+			if ok && val.node.typ.cat != valueT {
+				m0 := val.node.typ.methods()
+				m1 := typ.methods()
+				if len(m0) < len(m1) {
+					ok = false
+					return next
+				}
+
+				for k, meth1 := range m1 {
+					var meth0 string
+					meth0, ok = m0[k]
+					if !ok {
+						return next
+					}
+					if meth0 != meth1 {
+						ok = false
+						return next
+					}
+				}
+
+				// TODO(mpl): make this case compliant with reflect's Implements.
+				v = genInterfaceWrapper(val.node, rtype)(f)
+				value0(f).Set(v)
+				ok = true
+				return next
+			}
+
+			if ok {
+				v = val.value
+				leftType = val.node.typ.rtype
+			} else {
+				v = v.Elem()
+				leftType = v.Type()
+				ok = true
+			}
+			ok = v.IsValid()
+			if !ok {
+				if !withOk {
+					panic(fmt.Sprintf("interface conversion: interface {} is nil, not %s", rtype.String()))
+				}
+				return next
+			}
+			ok = canAssertTypes(leftType, rtype)
+			if !ok {
+				if !withOk {
+					method := firstMissingMethod(leftType, rtype)
+					panic(fmt.Sprintf("interface conversion: %s is not %s: missing method %s", leftType.String(), rtype.String(), method))
+				}
+				return next
+			}
+			value0(f).Set(v)
 			return next
 		}
 	case n.child[0].typ.cat == valueT || n.child[0].typ.cat == errorT:
 		n.exec = func(f *frame) bltn {
 			v := value(f).Elem()
-			ok := v.IsValid() && canAssertTypes(v.Type(), rtype)
-			if ok {
-				value0(f).Set(v)
-			}
+			ok := v.IsValid()
 			if setStatus {
-				value1(f).SetBool(ok)
+				defer func() {
+					value1(f).SetBool(ok)
+				}()
 			}
+			if !ok {
+				if !withOk {
+					panic(fmt.Sprintf("interface conversion: interface {} is nil, not %s", rtype.String()))
+				}
+				return next
+			}
+			ok = canAssertTypes(v.Type(), rtype)
+			if !ok {
+				if !withOk {
+					method := firstMissingMethod(v.Type(), rtype)
+					panic(fmt.Sprintf("interface conversion: %s is not %s: missing method %s", v.Type().String(), rtype.String(), method))
+				}
+				return next
+			}
+			value0(f).Set(v)
 			return next
 		}
 	default:
 		n.exec = func(f *frame) bltn {
 			v, ok := value(f).Interface().(valueInterface)
-			ok = ok && v.value.IsValid() && canAssertTypes(v.value.Type(), rtype)
-			if ok {
-				value0(f).Set(v.value)
-			}
 			if setStatus {
-				value1(f).SetBool(ok)
+				defer func() {
+					value1(f).SetBool(ok)
+				}()
 			}
+			if !ok || !v.value.IsValid() {
+				ok = false
+				if !withOk {
+					panic(fmt.Sprintf("interface conversion: interface {} is nil, not %s", rtype.String()))
+				}
+				return next
+			}
+			ok = canAssertTypes(v.value.Type(), rtype)
+			if !ok {
+				if !withOk {
+					panic(fmt.Sprintf("interface conversion: interface {} is %s, not %s", v.value.Type().String(), rtype.String()))
+				}
+				return next
+			}
+			value0(f).Set(v.value)
 			return next
 		}
 	}
@@ -588,12 +690,23 @@ func not(n *node) {
 
 func addr(n *node) {
 	dest := genValue(n)
-	value := genValue(n.child[0])
 	next := getExec(n.tnext)
-
-	n.exec = func(f *frame) bltn {
-		dest(f).Set(value(f).Addr())
-		return next
+	c0 := n.child[0]
+	value := genValue(c0)
+	switch c0.typ.cat {
+	case interfaceT:
+		i := n.findex
+		l := n.level
+		n.exec = func(f *frame) bltn {
+			v := value(f).Interface().(valueInterface).value
+			getFrame(f, l).data[i] = reflect.ValueOf(v.Interface())
+			return next
+		}
+	default:
+		n.exec = func(f *frame) bltn {
+			dest(f).Set(value(f).Addr())
+			return next
+		}
 	}
 }
 
@@ -763,6 +876,9 @@ func genFunctionWrapper(n *node) func(*frame) reflect.Value {
 				if src.Type().Kind() != dest.Type().Kind() {
 					dest.Set(src.Addr())
 				} else {
+					if wrappedSrc, ok := src.Interface().(valueInterface); ok {
+						src = wrappedSrc.value
+					}
 					dest.Set(src)
 				}
 				d = d[numRet+1:]
@@ -868,7 +984,10 @@ func call(n *node) {
 	var method bool
 	value := genValue(n.child[0])
 	var values []func(*frame) reflect.Value
-	if n.child[0].recv != nil {
+
+	recvIndexLater := false
+	switch {
+	case n.child[0].recv != nil:
 		// Compute method receiver value.
 		if isRecursiveType(n.child[0].recv.node.typ, n.child[0].recv.node.typ.rtype) {
 			values = append(values, genValueRecvInterfacePtr(n.child[0]))
@@ -876,11 +995,17 @@ func call(n *node) {
 			values = append(values, genValueRecv(n.child[0]))
 		}
 		method = true
-	} else if n.child[0].action == aMethod {
+	case len(n.child[0].child) > 0 && n.child[0].child[0].typ != nil && n.child[0].child[0].typ.cat == interfaceT:
+		recvIndexLater = true
+		values = append(values, genValueBinRecv(n.child[0], &receiver{node: n.child[0].child[0]}))
+		value = genValueBinMethodOnInterface(n, value)
+		method = true
+	case n.child[0].action == aMethod:
 		// Add a place holder for interface method receiver.
 		values = append(values, nil)
 		method = true
 	}
+
 	numRet := len(n.child[0].typ.ret)
 	variadic := variadicPos(n)
 	child := n.child[1:]
@@ -990,6 +1115,7 @@ func call(n *node) {
 	n.exec = func(f *frame) bltn {
 		var def *node
 		var ok bool
+
 		bf := value(f)
 		if def, ok = bf.Interface().(*node); ok {
 			bf = def.rval
@@ -1059,15 +1185,15 @@ func call(n *node) {
 					var src reflect.Value
 					if v == nil {
 						src = def.recv.val
-						if len(def.recv.index) > 0 {
-							if src.Kind() == reflect.Ptr {
-								src = src.Elem().FieldByIndex(def.recv.index)
-							} else {
-								src = src.FieldByIndex(def.recv.index)
-							}
-						}
 					} else {
 						src = v(f)
+					}
+					if recvIndexLater && def.recv != nil && len(def.recv.index) > 0 {
+						if src.Kind() == reflect.Ptr {
+							src = src.Elem().FieldByIndex(def.recv.index)
+						} else {
+							src = src.FieldByIndex(def.recv.index)
+						}
 					}
 					// Accommodate to receiver type
 					d := dest[0]
@@ -1608,6 +1734,15 @@ func getMethodByName(n *node) {
 
 	n.exec = func(f *frame) bltn {
 		val := value0(f).Interface().(valueInterface)
+		typ := val.node.typ
+		if typ.node == nil && typ.cat == valueT {
+			// happens with a var of empty interface type, that has value of concrete type
+			// from runtime, being asserted to "user-defined" interface.
+			if _, ok := typ.rtype.MethodByName(name); !ok {
+				panic(fmt.Sprintf("method %s not found", name))
+			}
+			return next
+		}
 		m, li := val.node.typ.lookupMethod(name)
 		fr := f.clone()
 		nod := *m

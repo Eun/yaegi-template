@@ -8,12 +8,10 @@ import (
 	"os"
 
 	"github.com/Eun/yaegi-template"
-	"github.com/traefik/yaegi/interp"
-	"github.com/traefik/yaegi/stdlib"
 )
 
 func main() {
-	template := yaegi_template.MustNew(interp.Options{}, stdlib.Symbols)
+	template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultImports()...)
 	template.MustParseString(`
 <html>
 <$

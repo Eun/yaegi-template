@@ -2,7 +2,10 @@ package yaegi_template
 
 import (
 	"io"
+	"os"
 	"strings"
+
+	"github.com/traefik/yaegi/stdlib"
 
 	"reflect"
 
@@ -34,6 +37,22 @@ type Template struct {
 	outputBuffer   *outputBuffer
 	codeBuffer     *codebuffer.CodeBuffer
 	mu             sync.Mutex
+}
+
+// DefaultOptions return the default options for the New and MustNew functions.
+func DefaultOptions() interp.Options {
+	return interp.Options{
+		GoPath:    os.Getenv("GOPATH"),
+		BuildTags: nil,
+		Stdin:     nil,
+		Stdout:    nil,
+		Stderr:    nil,
+	}
+}
+
+// DefaultImports return the default imports for the New and MustNew functions.
+func DefaultImports() []interp.Exports {
+	return []interp.Exports{stdlib.Symbols}
 }
 
 func New(
@@ -70,6 +89,32 @@ func MustNew(
 }
 
 func (t *Template) Parse(reader io.Reader) error {
+	if err := t.LazyParse(reader); err != nil {
+		return err
+	}
+
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
+	it, err := t.codeBuffer.Iterator()
+	if err != nil {
+		return err
+	}
+
+	// parse everything now
+	for it.Next() {
+	}
+	return it.Error()
+}
+
+func (t *Template) MustParse(r io.Reader) *Template {
+	if err := t.Parse(r); err != nil {
+		panic(err.Error())
+	}
+	return t
+}
+
+func (t *Template) LazyParse(reader io.Reader) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	// maybe in the future we parse the template here
@@ -93,8 +138,8 @@ func (t *Template) Parse(reader io.Reader) error {
 	})
 }
 
-func (t *Template) MustParse(r io.Reader) *Template {
-	if err := t.Parse(r); err != nil {
+func (t *Template) MustLazyParse(r io.Reader) *Template {
+	if err := t.LazyParse(r); err != nil {
 		panic(err.Error())
 	}
 	return t
@@ -104,11 +149,22 @@ func (t *Template) ParseString(s string) error {
 	return t.Parse(bytes.NewReader([]byte(s)))
 }
 
+func (t *Template) ParseBytes(b []byte) error {
+	return t.Parse(bytes.NewReader(b))
+}
+
 func (t *Template) MustParseString(s string) *Template {
 	if err := t.ParseString(s); err != nil {
 		panic(err.Error())
 	}
 	return t
+}
+
+func (t *Template) MustParseBytes(b []byte) error {
+	if err := t.MustParseBytes(b); err != nil {
+		panic(err.Error())
+	}
+	return nil
 }
 
 func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
