@@ -1,56 +1,54 @@
-/*
-yaegi-template is a package that provides a templating engine using yeagi.
-yaegi is a golang interpreter and can be used to run go code inside an go application.
-
-Example usage:
-package main
-
-import (
-	"os"
-
-	"github.com/Eun/yaegi-template"
-)
-
-func main() {
-	template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultImports()...)
-	template.MustParseString(`
-<html>
-<$
-	import "time"
-	func GreetUser(name string) {
-		fmt.Printf("Hello %s, it is %s", name, time.Now().Format(time.Kitchen))
-	}
-$>
-
-<p>
-<$
-	if context.LoggedIn {
-		GreetUser(context.UserName)
-	}
-$>
-</p>
-</html>
-`)
-
-	type Context struct {
-		LoggedIn bool
-		UserName string
-	}
-
-	template.MustExec(os.Stdout, &Context{
-		LoggedIn: true,
-		UserName: "Joe Doe",
-	})
-}
-*/
-
+// package yaegi_template is a package that provides a templating engine using yeagi.
+// yaegi is a golang interpreter and can be used to run go code inside an go application.
+//
+// Example usage:
+//    package main
+//
+//    import (
+//        "os"
+//
+//        "github.com/Eun/yaegi-template"
+//    )
+//
+//    func main() {
+//        template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultImports()...)
+//        template.MustParseString(`
+//    <html>
+//    <$
+//        import "time"
+//        func GreetUser(name string) {
+//            fmt.Printf("Hello %s, it is %s", name, time.Now().Format(time.Kitchen))
+//        }
+//    $>
+//
+//    <p>
+//    <$
+//        if context.LoggedIn {
+//            GreetUser(context.UserName)
+//        }
+//    $>
+//    </p>
+//    </html>
+//    `)
+//
+//        type Context struct {
+//            LoggedIn bool
+//            UserName string
+//        }
+//
+//        template.MustExec(os.Stdout, &Context{
+//            LoggedIn: true,
+//            UserName: "Joe Doe",
+//        })
+//    }
 package yaegi_template
 
 import (
-	"github.com/pkg/errors"
 	"io"
 	"os"
 	"strings"
+
+	"github.com/pkg/errors"
 
 	"github.com/traefik/yaegi/stdlib"
 
