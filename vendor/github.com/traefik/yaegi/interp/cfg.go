@@ -75,6 +75,9 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			case assignStmt, defineStmt:
 				a := n.anc
 				i := childPos(n) - a.nright
+				if i < 0 {
+					break
+				}
 				if len(a.child) > a.nright+a.nleft {
 					i--
 				}
@@ -415,9 +418,10 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				return false
 			}
 
-			if n.child[1].kind == identExpr {
+			switch n.child[1].kind {
+			case identExpr, selectorExpr:
 				n.typ = &itype{cat: aliasT, val: typ, name: typeName}
-			} else {
+			default:
 				n.typ = typ
 				n.typ.name = typeName
 			}

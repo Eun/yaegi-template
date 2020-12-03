@@ -1,4 +1,9 @@
 linters-settings:
+  depguard:
+    list-type: blacklist
+    include-go-root: false
+    packages-with-error-message:
+      - errors: "Use github.com/pkg/errors instead of errors"
   dogsled:
     # checks assignments with too many blank identifiers; default is 2
     max-blank-identifiers: 2
@@ -23,7 +28,7 @@ linters-settings:
     # indicates that switch statements are to be considered exhaustive if a
     # 'default' case is present, even if all enum members aren't listed in the
     # switch
-    default-signifies-exhaustive: false
+    default-signifies-exhaustive: true
   funlen:
     lines: 100
     statements: 50
@@ -157,7 +162,6 @@ linters:
     - gosimple
     - govet
     - ineffassign
-    - interfacer
     - lll
     - misspell
     - nestif
@@ -179,16 +183,17 @@ linters:
 
 
 issues:
+  # Independently from option `exclude` we use default exclude patterns,
+  # it can be disabled by this option. To list all
+  # excluded by default patterns execute `golangci-lint run --help`.
+  # Default value for this option is true.
+  exclude-use-default: false
   # Maximum issues count per one linter. Set to 0 to disable. Default is 50.
   max-issues-per-linter: 0
   # Maximum count of issues with the same text. Set to 0 to disable. Default is 3.
   max-same-issues: 0
 
   exclude-rules:
-    - text: "shadow: declaration of \"err\" shadows declaration at line"
-      linters:
-        - govet
-
     # Exclude some linters from running on tests files.
     - path: _test\.go
       linters:
@@ -199,10 +204,15 @@ issues:
         - funlen
         - goconst
         - scopelint
-    - text: don't use an underscore in package name
+        - gocognit
+        - lll
+    - text: 'shadow: declaration of "err" shadows declaration at line \d+'
+      linters:
+        - govet
+    - text: "don't use an underscore in package name"
       linters:
         - golint
-    - text: should not use underscores in package names
+    - text: "should not use underscores in package names"
       linters:
         - stylecheck
 
