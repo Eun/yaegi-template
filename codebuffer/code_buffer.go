@@ -3,18 +3,22 @@ package codebuffer
 import (
 	"io"
 
-	"errors"
+	"github.com/pkg/errors"
 
 	"go.uber.org/atomic"
 )
 
+// PartType represents a part type.
 type PartType uint8
 
 const (
+	// TextPartType represents a text part.
 	TextPartType PartType = iota
+	// CodePartType represents a code part.
 	CodePartType
 )
 
+// Part represents one part of the text.
 type Part struct {
 	Type    PartType
 	Content []byte
@@ -26,12 +30,14 @@ const (
 	readState
 )
 
+// Iterator represents an iterator that can be used to walk trough the CodeBuffer.
 type Iterator interface {
 	Next() bool
 	Value() *Part
 	Error() error
 }
 
+// CodeBuffer is a construct to walk over a text separating code from text blocks.
 type CodeBuffer struct {
 	r           io.Reader
 	startTokens []rune
@@ -40,12 +46,15 @@ type CodeBuffer struct {
 	state       *atomic.Int32
 }
 
+// InReadingState is a error that will be returned when the CodeBuffer is busy on another thread.
 type InReadingState struct{}
 
+// Error returns the error text for InReadingState.
 func (InReadingState) Error() string {
 	return "the reader was not fully consumed yet"
 }
 
+// New creates a new CodeBuffer with the specified reader.
 func New(r io.Reader, startTokens, endTokens []rune) *CodeBuffer {
 	return &CodeBuffer{
 		r:           r,
@@ -55,6 +64,7 @@ func New(r io.Reader, startTokens, endTokens []rune) *CodeBuffer {
 	}
 }
 
+// Iterator returns an iterator that can be used to walk trough the CodeBuffer.
 func (c *CodeBuffer) Iterator() (Iterator, error) {
 	switch c.state.Load() {
 	case notReadState:

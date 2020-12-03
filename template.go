@@ -1,6 +1,53 @@
+/*
+yaegi-template is a package that provides a templating engine using yeagi.
+yaegi is a golang interpreter and can be used to run go code inside an go application.
+
+Example usage:
+package main
+
+import (
+	"os"
+
+	"github.com/Eun/yaegi-template"
+)
+
+func main() {
+	template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultImports()...)
+	template.MustParseString(`
+<html>
+<$
+	import "time"
+	func GreetUser(name string) {
+		fmt.Printf("Hello %s, it is %s", name, time.Now().Format(time.Kitchen))
+	}
+$>
+
+<p>
+<$
+	if context.LoggedIn {
+		GreetUser(context.UserName)
+	}
+$>
+</p>
+</html>
+`)
+
+	type Context struct {
+		LoggedIn bool
+		UserName string
+	}
+
+	template.MustExec(os.Stdout, &Context{
+		LoggedIn: true,
+		UserName: "Joe Doe",
+	})
+}
+*/
+
 package yaegi_template
 
 import (
+	"github.com/pkg/errors"
 	"io"
 	"os"
 	"strings"
@@ -26,6 +73,7 @@ import (
 	"github.com/Eun/yaegi-template/codebuffer"
 )
 
+// Template represents a template.
 type Template struct {
 	options        interp.Options
 	use            []interp.Exports
@@ -55,6 +103,7 @@ func DefaultImports() []interp.Exports {
 	return []interp.Exports{stdlib.Symbols}
 }
 
+// New creates a new Template that can be used in a later time.
 func New(
 	options interp.Options, //nolint:gocritic // disable hugeParam: options is heavy
 	use ...interp.Exports) (*Template, error) {
@@ -78,6 +127,7 @@ func New(
 	return t, nil
 }
 
+// MustNew is like New, except it panics on failure.
 func MustNew(
 	options interp.Options, //nolint:gocritic // disable hugeParam: options is heavy
 	use ...interp.Exports) *Template {
@@ -88,6 +138,7 @@ func MustNew(
 	return t
 }
 
+// Parse parses the specified reader, after success it is possible to call Exec() on the template.
 func (t *Template) Parse(reader io.Reader) error {
 	if err := t.LazyParse(reader); err != nil {
 		return err
@@ -107,6 +158,7 @@ func (t *Template) Parse(reader io.Reader) error {
 	return it.Error()
 }
 
+// MustParse is like Parse, except it panics on failure.
 func (t *Template) MustParse(r io.Reader) *Template {
 	if err := t.Parse(r); err != nil {
 		panic(err.Error())
@@ -114,6 +166,7 @@ func (t *Template) MustParse(r io.Reader) *Template {
 	return t
 }
 
+// LazyParse parses the specified reader during usage of Exec().
 func (t *Template) LazyParse(reader io.Reader) error {
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -138,6 +191,7 @@ func (t *Template) LazyParse(reader io.Reader) error {
 	})
 }
 
+// MustLazyParse is like LazyParse, except it panics on failure.
 func (t *Template) MustLazyParse(r io.Reader) *Template {
 	if err := t.LazyParse(r); err != nil {
 		panic(err.Error())
@@ -145,14 +199,17 @@ func (t *Template) MustLazyParse(r io.Reader) *Template {
 	return t
 }
 
+// ParseString parses the specified string, after success it is possible to call Exec() on the template.
 func (t *Template) ParseString(s string) error {
 	return t.Parse(bytes.NewReader([]byte(s)))
 }
 
+// ParseBytes parses the specified byte slice, after success it is possible to call Exec() on the template.
 func (t *Template) ParseBytes(b []byte) error {
 	return t.Parse(bytes.NewReader(b))
 }
 
+// MustParseString is like ParseString, except it panics on failure.
 func (t *Template) MustParseString(s string) *Template {
 	if err := t.ParseString(s); err != nil {
 		panic(err.Error())
@@ -160,6 +217,7 @@ func (t *Template) MustParseString(s string) *Template {
 	return t
 }
 
+// MustParseBytes is like ParseBytes, except it panics on failure.
 func (t *Template) MustParseBytes(b []byte) error {
 	if err := t.MustParseBytes(b); err != nil {
 		panic(err.Error())
@@ -167,9 +225,13 @@ func (t *Template) MustParseBytes(b []byte) error {
 	return nil
 }
 
+// Exec executes the template, and writes the output to the specified writer.
 func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if t.codeBuffer == nil {
+		return 0, errors.New("template was never parsed")
+	}
 
 	it, err := t.codeBuffer.Iterator()
 	if err != nil {
@@ -190,7 +252,10 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 				total += n
 			}
 		case codebuffer.TextPartType:
-			n, err := writer.Write(part.Content)
+			var n int
+			if writer != nil {
+				n, err = writer.Write(part.Content)
+			}
 			if err != nil {
 				return total, err
 			}
@@ -203,14 +268,11 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	return total, it.Error()
 }
 
+// MustExec is like Exec, except it panics on failure.
 func (t *Template) MustExec(writer io.Writer, context interface{}) {
 	if _, err := t.Exec(writer, context); err != nil {
 		panic(err.Error())
 	}
-}
-
-type RuneReader interface {
-	ReadRune() (rune, int, error)
 }
 
 func (t *Template) execCode(code string, out io.Writer, context interface{}) (int, error) {
@@ -242,7 +304,10 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 		// implicit write
 		fmt.Fprint(t.outputBuffer, printValue(res))
 	}
-	n, err := out.Write(t.outputBuffer.Bytes())
+	var n int
+	if out != nil {
+		n, err = out.Write(t.outputBuffer.Bytes())
+	}
 	t.outputBuffer.DiscardWrites(true)
 	t.outputBuffer.Reset()
 	return n, err

@@ -209,6 +209,12 @@ issues:
     - text: 'shadow: declaration of "err" shadows declaration at line \d+'
       linters:
         - govet
+    - text: "don't use an underscore in package name"
+      linters:
+        - golint
+    - text: "should not use underscores in package names"
+      linters:
+        - stylecheck
 
 
 # golangci.com configuration
