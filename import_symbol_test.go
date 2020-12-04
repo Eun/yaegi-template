@@ -92,7 +92,7 @@ func Test_importSymbol_ImportLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.src.ImportLine(); got != tt.want {
+			if got := tt.src.importLine(); got != tt.want {
 				t.Errorf("ImportLine() = %v, want %v", got, tt.want)
 			}
 		})
