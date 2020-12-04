@@ -501,5 +501,45 @@ func TestTemplate_ExecWithoutParse(t *testing.T) {
 
 func TestTemplate_ExecToNilWriter(t *testing.T) {
 	buf := bytes.NewReader([]byte(`Hello <$ print("World") $>`))
-	MustNew(DefaultOptions(), DefaultSymbols()...).MustLazyParse(buf).Exec(nil, nil)
+	MustNew(DefaultOptions(), DefaultSymbols()...).MustLazyParse(buf).MustExec(nil, nil)
+}
+
+func TestTemplate_Import(t *testing.T) {
+	t.Run("single", func(t *testing.T) {
+		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
+			MustLazyParse(bytes.NewReader([]byte(`Hello <$ fmt.Print(http.StatusOK) $>`))).
+			MustImport(Import{
+				Path: "net/http",
+			})
+		var buf bytes.Buffer
+		tm.MustExec(&buf, nil)
+		require.Equal(t, "Hello 200", buf.String())
+	})
+	t.Run("double import", func(t *testing.T) {
+		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
+			MustLazyParse(bytes.NewReader([]byte(`Hello <$ fmt.Print(http.StatusOK) $>`))).
+			MustImport(Import{
+				Path: "net/http",
+			}).
+			MustImport(Import{
+				Path: "net/http",
+			})
+		var buf bytes.Buffer
+		tm.MustExec(&buf, nil)
+		require.Equal(t, "Hello 200", buf.String())
+	})
+	t.Run("alias import", func(t *testing.T) {
+		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
+			MustLazyParse(bytes.NewReader([]byte(`Hello <$ fmt.Print(h.StatusOK) $>`))).
+			MustImport(Import{
+				Name: "h",
+				Path: "net/http",
+			}).
+			MustImport(Import{
+				Path: "net/http",
+			})
+		var buf bytes.Buffer
+		tm.MustExec(&buf, nil)
+		require.Equal(t, "Hello 200", buf.String())
+	})
 }

@@ -183,7 +183,7 @@ func (t *Template) LazyParse(reader io.Reader) error {
 	}
 
 	// import fmt
-	return t.importSymbol(importSymbol{
+	return t.Import(Import{
 		Name: "",
 		Path: "fmt",
 	})
@@ -386,7 +386,7 @@ func (t *Template) evalImports(code *string) error {
 				continue
 			}
 
-			sym := importSymbol{
+			sym := Import{
 				Name: "",
 				Path: strings.TrimFunc(importSpec.Path.Value, func(r rune) bool {
 					return r == '`' || r == '"'
@@ -400,7 +400,7 @@ func (t *Template) evalImports(code *string) error {
 			syms = append(syms, sym)
 		}
 
-		if err := t.importSymbol(syms...); err != nil {
+		if err := t.Import(syms...); err != nil {
 			return err
 		}
 
@@ -434,7 +434,7 @@ func (*Template) hasPackage(s string) (bool, error) {
 	return true, nil
 }
 
-func (t *Template) importSymbol(imports ...importSymbol) error {
+func (t *Template) Import(imports ...Import) error {
 	var symbolsToImport importSymbols
 	for _, symbol := range imports {
 		if !t.imports.Contains(symbol) {
@@ -451,4 +451,11 @@ func (t *Template) importSymbol(imports ...importSymbol) error {
 	}
 	t.imports = append(t.imports, symbolsToImport...)
 	return nil
+}
+
+func (t *Template) MustImport(imports ...Import) *Template {
+	if err := t.Import(imports...); err != nil {
+		panic(err)
+	}
+	return t
 }

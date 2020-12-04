@@ -1,10 +1,13 @@
 package yaegi_template
 
-import "strings"
+import (
+	"fmt"
+	"strings"
+)
 
-type importSymbols []importSymbol
+type importSymbols []Import
 
-func (is importSymbols) Contains(symbol importSymbol) bool {
+func (is importSymbols) Contains(symbol Import) bool {
 	for _, s := range is {
 		if s.Equals(symbol) {
 			return true
@@ -31,18 +34,18 @@ func (is importSymbols) ImportBlock() string {
 	}
 }
 
-type importSymbol struct {
+type Import struct {
 	Name string
 	Path string
 }
 
-func (s importSymbol) Equals(symbol importSymbol) bool {
+func (s Import) Equals(symbol Import) bool {
 	return s.Name == symbol.Name && strings.EqualFold(s.Path, symbol.Path)
 }
 
-func (s importSymbol) ImportLine() string {
+func (s Import) ImportLine() string {
 	if s.Name != "" {
-		return s.Name + ` "` + s.Path + `"`
+		return fmt.Sprintf("%s %q", s.Name, s.Path)
 	}
-	return `"` + s.Path + `"`
+	return fmt.Sprintf("%q", s.Path)
 }

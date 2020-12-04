@@ -11,7 +11,7 @@ import (
 )
 
 func main() {
-	template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultImports()...)
+	template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultSymbols()...)
 	template.MustParseString(`
 <html>
 <$
