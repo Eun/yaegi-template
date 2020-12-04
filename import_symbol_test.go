@@ -5,17 +5,17 @@ import "testing"
 func Test_importSymbol_Equals(t *testing.T) {
 	tests := []struct {
 		name string
-		src  importSymbol
-		args importSymbol
+		src  Import
+		args Import
 		want bool
 	}{
 		{
 			"normal import",
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "fmt",
 			},
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "fmt",
 			},
@@ -23,11 +23,11 @@ func Test_importSymbol_Equals(t *testing.T) {
 		},
 		{
 			"normal import",
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "fmt",
 			},
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "log",
 			},
@@ -35,11 +35,11 @@ func Test_importSymbol_Equals(t *testing.T) {
 		},
 		{
 			"dot import",
-			importSymbol{
+			Import{
 				Name: ".",
 				Path: "fmt",
 			},
-			importSymbol{
+			Import{
 				Name: ".",
 				Path: "fmt",
 			},
@@ -47,11 +47,11 @@ func Test_importSymbol_Equals(t *testing.T) {
 		},
 		{
 			"dot import",
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "fmt",
 			},
-			importSymbol{
+			Import{
 				Name: ".",
 				Path: "log",
 			},
@@ -70,12 +70,12 @@ func Test_importSymbol_Equals(t *testing.T) {
 func Test_importSymbol_ImportLine(t *testing.T) {
 	tests := []struct {
 		name string
-		src  importSymbol
+		src  Import
 		want string
 	}{
 		{
 			"normal import",
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "fmt",
 			},
@@ -83,7 +83,7 @@ func Test_importSymbol_ImportLine(t *testing.T) {
 		},
 		{
 			"dot import",
-			importSymbol{
+			Import{
 				Name: ".",
 				Path: "fmt",
 			},
@@ -92,7 +92,7 @@ func Test_importSymbol_ImportLine(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := tt.src.ImportLine(); got != tt.want {
+			if got := tt.src.importLine(); got != tt.want {
 				t.Errorf("ImportLine() = %v, want %v", got, tt.want)
 			}
 		})
@@ -103,7 +103,7 @@ func Test_importSymbols_Contains(t *testing.T) {
 	tests := []struct {
 		name string
 		is   importSymbols
-		args importSymbol
+		args Import
 		want bool
 	}{
 		{
@@ -114,7 +114,7 @@ func Test_importSymbols_Contains(t *testing.T) {
 					Path: "fmt",
 				},
 			},
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "fmt",
 			},
@@ -128,7 +128,7 @@ func Test_importSymbols_Contains(t *testing.T) {
 					Path: "fmt",
 				},
 			},
-			importSymbol{
+			Import{
 				Name: "",
 				Path: "log",
 			},
@@ -142,7 +142,7 @@ func Test_importSymbols_Contains(t *testing.T) {
 					Path: "fmt",
 				},
 			},
-			importSymbol{
+			Import{
 				Name: ".",
 				Path: "fmt",
 			},
@@ -156,7 +156,7 @@ func Test_importSymbols_Contains(t *testing.T) {
 					Path: "fmt",
 				},
 			},
-			importSymbol{
+			Import{
 				Name: ".",
 				Path: "log",
 			},
