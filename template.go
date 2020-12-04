@@ -434,6 +434,7 @@ func (*Template) hasPackage(s string) (bool, error) {
 	return true, nil
 }
 
+// Import imports the specified imports to the interpreter.
 func (t *Template) Import(imports ...Import) error {
 	var symbolsToImport importSymbols
 	for _, symbol := range imports {
@@ -453,6 +454,7 @@ func (t *Template) Import(imports ...Import) error {
 	return nil
 }
 
+// MustImport is like Import, except it panics on failure.
 func (t *Template) MustImport(imports ...Import) *Template {
 	if err := t.Import(imports...); err != nil {
 		panic(err)

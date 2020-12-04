@@ -21,12 +21,12 @@ func (is importSymbols) ImportBlock() string {
 	case 0:
 		return ""
 	case 1:
-		return "import " + is[0].ImportLine()
+		return "import " + is[0].importLine()
 	default:
 		var sb strings.Builder
 		sb.WriteString("import (\n")
 		for _, symbol := range is {
-			sb.WriteString(symbol.ImportLine())
+			sb.WriteString(symbol.importLine())
 			sb.WriteRune('\n')
 		}
 		sb.WriteString(")")
@@ -34,18 +34,20 @@ func (is importSymbols) ImportBlock() string {
 	}
 }
 
+// Import represents an import that should be evaluated.
 type Import struct {
 	Name string
 	Path string
 }
 
-func (s Import) Equals(symbol Import) bool {
-	return s.Name == symbol.Name && strings.EqualFold(s.Path, symbol.Path)
+// Equals returns true if the specified import is equal to this import.
+func (v Import) Equals(i Import) bool {
+	return v.Name == i.Name && strings.EqualFold(v.Path, i.Path)
 }
 
-func (s Import) ImportLine() string {
-	if s.Name != "" {
-		return fmt.Sprintf("%s %q", s.Name, s.Path)
+func (v Import) importLine() string {
+	if v.Name != "" {
+		return fmt.Sprintf("%s %q", v.Name, v.Path)
 	}
-	return fmt.Sprintf("%q", s.Path)
+	return fmt.Sprintf("%q", v.Path)
 }
