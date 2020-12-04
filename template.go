@@ -436,6 +436,9 @@ func (*Template) hasPackage(s string) (bool, error) {
 
 // Import imports the specified imports to the interpreter.
 func (t *Template) Import(imports ...Import) error {
+	if t.interp == nil {
+		return errors.New("template must be parsed before Import can be used")
+	}
 	var symbolsToImport importSymbols
 	for _, symbol := range imports {
 		if !t.imports.Contains(symbol) {

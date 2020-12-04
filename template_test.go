@@ -542,4 +542,11 @@ func TestTemplate_Import(t *testing.T) {
 		tm.MustExec(&buf, nil)
 		require.Equal(t, "Hello 200", buf.String())
 	})
+	t.Run("import before parse", func(t *testing.T) {
+		err := MustNew(DefaultOptions(), DefaultSymbols()...).
+			Import(Import{
+				Path: "net/http",
+			})
+		require.EqualError(t, err, "template must be parsed before Import can be used")
+	})
 }
