@@ -11,7 +11,7 @@
 //    )
 //
 //    func main() {
-//        template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultImports()...)
+//        template := yaegi_template.MustNew(yaegi_template.DefaultOptions(), yaegi_template.DefaultSymbols()...)
 //        template.MustParseString(`
 //    <html>
 //    <$
@@ -96,8 +96,8 @@ func DefaultOptions() interp.Options {
 	}
 }
 
-// DefaultImports return the default imports for the New and MustNew functions.
-func DefaultImports() []interp.Exports {
+// DefaultSymbols return the default symbols for the New and MustNew functions.
+func DefaultSymbols() []interp.Exports {
 	return []interp.Exports{stdlib.Symbols}
 }
 

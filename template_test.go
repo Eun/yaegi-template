@@ -488,18 +488,18 @@ func TestImplicitReturn(t *testing.T) {
 
 func TestTemplate_LazyParse(t *testing.T) {
 	buf := bytes.NewReader([]byte(`Hello <$ print("World") $>`))
-	MustNew(DefaultOptions(), DefaultImports()...).MustLazyParse(buf)
+	MustNew(DefaultOptions(), DefaultSymbols()...).MustLazyParse(buf)
 	pos, err := buf.Seek(0, io.SeekCurrent)
 	require.NoError(t, err)
 	require.Equal(t, int64(0), pos)
 }
 
 func TestTemplate_ExecWithoutParse(t *testing.T) {
-	_, err := MustNew(DefaultOptions(), DefaultImports()...).Exec(nil, nil)
+	_, err := MustNew(DefaultOptions(), DefaultSymbols()...).Exec(nil, nil)
 	require.EqualError(t, err, "template was never parsed")
 }
 
 func TestTemplate_ExecToNilWriter(t *testing.T) {
 	buf := bytes.NewReader([]byte(`Hello <$ print("World") $>`))
-	MustNew(DefaultOptions(), DefaultImports()...).MustLazyParse(buf).Exec(nil, nil)
+	MustNew(DefaultOptions(), DefaultSymbols()...).MustLazyParse(buf).Exec(nil, nil)
 }
