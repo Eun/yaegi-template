@@ -2,6 +2,7 @@ package yaegi_template
 
 import (
 	"io"
+	"reflect"
 	"testing"
 
 	"bytes"
@@ -507,7 +508,7 @@ func TestTemplate_ExecToNilWriter(t *testing.T) {
 func TestTemplate_Import(t *testing.T) {
 	t.Run("single", func(t *testing.T) {
 		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
-			MustLazyParse(bytes.NewReader([]byte(`Hello <$ fmt.Print(http.StatusOK) $>`))).
+			MustParseString(`Hello <$ fmt.Print(http.StatusOK) $>`).
 			MustImport(Import{
 				Path: "net/http",
 			})
@@ -517,7 +518,7 @@ func TestTemplate_Import(t *testing.T) {
 	})
 	t.Run("double import", func(t *testing.T) {
 		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
-			MustLazyParse(bytes.NewReader([]byte(`Hello <$ fmt.Print(http.StatusOK) $>`))).
+			MustParseString(`Hello <$ fmt.Print(http.StatusOK) $>`).
 			MustImport(Import{
 				Path: "net/http",
 			}).
@@ -530,7 +531,7 @@ func TestTemplate_Import(t *testing.T) {
 	})
 	t.Run("alias import", func(t *testing.T) {
 		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
-			MustLazyParse(bytes.NewReader([]byte(`Hello <$ fmt.Print(h.StatusOK) $>`))).
+			MustParseString(`Hello <$ fmt.Print(h.StatusOK) $>`).
 			MustImport(Import{
 				Name: "h",
 				Path: "net/http",
@@ -543,10 +544,128 @@ func TestTemplate_Import(t *testing.T) {
 		require.Equal(t, "Hello 200", buf.String())
 	})
 	t.Run("import before parse", func(t *testing.T) {
-		err := MustNew(DefaultOptions(), DefaultSymbols()...).
-			Import(Import{
+		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
+			MustImport(Import{
 				Path: "net/http",
-			})
-		require.EqualError(t, err, "template must be parsed before Import can be used")
+			}).
+			MustParseString(`Hello <$ fmt.Print(http.StatusOK) $>`)
+		var buf bytes.Buffer
+		tm.MustExec(&buf, nil)
+		require.Equal(t, "Hello 200", buf.String())
+	})
+}
+
+func TestTemplateWithAdditionalSymbols(t *testing.T) {
+	t.Run("using New+Import", func(t *testing.T) {
+		t.Run("separate namespace", func(t *testing.T) {
+			var buf bytes.Buffer
+			MustNew(
+				DefaultOptions(),
+				append(DefaultSymbols(), interp.Exports{
+					"ext": map[string]reflect.Value{
+						"Foo": reflect.ValueOf(func() string {
+							return "foo"
+						}),
+					},
+				})...).
+				MustImport(Import{
+					Path: "ext",
+				}).
+				MustParseString(`Hello <$ fmt.Print(ext.Foo()) $>`).
+				MustExec(&buf, nil)
+			require.Equal(t, "Hello foo", buf.String())
+		})
+		t.Run("in own namespace (dot import)", func(t *testing.T) {
+			var buf bytes.Buffer
+			MustNew(
+				DefaultOptions(),
+				append(DefaultSymbols(), interp.Exports{
+					"ext": map[string]reflect.Value{
+						"Foo": reflect.ValueOf(func() string {
+							return "foo"
+						}),
+					},
+				})...).
+				MustImport(Import{
+					Name: ".",
+					Path: "ext",
+				}).
+				MustParseString(`Hello <$ fmt.Print(Foo()) $>`).
+				MustExec(&buf, nil)
+			require.Equal(t, "Hello foo", buf.String())
+		})
+		t.Run("in own namespace (private dot import)", func(t *testing.T) {
+			var buf bytes.Buffer
+			MustNew(
+				DefaultOptions(),
+				append(DefaultSymbols(), interp.Exports{
+					"ext": map[string]reflect.Value{
+						"foo": reflect.ValueOf(func() string {
+							return "foo"
+						}),
+					},
+				})...).
+				MustImport(Import{
+					Name: ".",
+					Path: "ext",
+				}).
+				MustParseString(`Hello <$ fmt.Print(foo()) $>`).
+				MustExec(&buf, nil)
+			require.Equal(t, "Hello foo", buf.String())
+		})
+	})
+
+	t.Run("Use() func", func(t *testing.T) {
+		t.Run("separate namespace", func(t *testing.T) {
+			var buf bytes.Buffer
+			MustNew(
+				DefaultOptions(),
+				DefaultSymbols()...).
+				MustUse(interp.Exports{
+					"ext": map[string]reflect.Value{
+						"Foo": reflect.ValueOf(func() string {
+							return "foo"
+						}),
+					},
+				}).
+				MustImport(Import{Path: "ext"}).
+				MustParseString(`Hello <$ fmt.Print(ext.Foo()) $>`).
+				MustExec(&buf, nil)
+			require.Equal(t, "Hello foo", buf.String())
+		})
+		t.Run("in own namespace (dot import)", func(t *testing.T) {
+			var buf bytes.Buffer
+			MustNew(
+				DefaultOptions(),
+				DefaultSymbols()...).
+				MustUse(interp.Exports{
+					"ext": map[string]reflect.Value{
+						"Foo": reflect.ValueOf(func() string {
+							return "foo"
+						}),
+					},
+				}).
+				MustImport(Import{Name: ".", Path: "ext"}).
+				MustParseString(`Hello <$ fmt.Print(Foo()) $>`).
+				MustExec(&buf, nil)
+			require.Equal(t, "Hello foo", buf.String())
+		})
+		t.Run("in own namespace (private dot import)", func(t *testing.T) {
+			var buf bytes.Buffer
+			MustNew(
+				DefaultOptions(),
+				DefaultSymbols()...).
+				MustUse(interp.Exports{
+					"ext": map[string]reflect.Value{
+						"foo": reflect.ValueOf(func() string {
+							return "foo"
+						}),
+					},
+				}).
+				MustImport(Import{Name: ".", Path: "ext"}).
+				MustParseString(`Hello <$ fmt.Print(foo()) $>`).
+				MustExec(&buf, nil)
+			require.Equal(t, "Hello foo", buf.String())
+		})
 	})
 }
