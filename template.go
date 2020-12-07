@@ -74,9 +74,9 @@ import (
 // Template represents a template.
 type Template struct {
 	options        interp.Options
-	use            []interp.Exports
-	templateReader io.Reader
+	use            interp.Exports
 	imports        importSymbols
+	templateReader io.Reader
 	StartTokens    []rune
 	EndTokens      []rune
 	interp         *interp.Interpreter
@@ -107,20 +107,9 @@ func New(
 	use ...interp.Exports) (*Template, error) {
 	t := &Template{
 		options:     options,
-		use:         make([]interp.Exports, len(use)),
+		use:         mergeExports(use...),
 		StartTokens: []rune("<$"),
 		EndTokens:   []rune("$>"),
-	}
-
-	// copy use so we can be sure not to modify them
-	for i := range use {
-		t.use[i] = make(interp.Exports)
-		for packageName, funcMap := range use[i] {
-			t.use[i][packageName] = make(map[string]reflect.Value)
-			for funcName, funcReference := range funcMap {
-				t.use[i][packageName][funcName] = funcReference
-			}
-		}
 	}
 	return t, nil
 }
@@ -178,8 +167,18 @@ func (t *Template) LazyParse(reader io.Reader) error {
 
 	t.interp = interp.New(t.options)
 
-	for i := 0; i < len(t.use); i++ {
-		t.interp.Use(t.use[i])
+	// if we already have some uses
+	// use them
+	if len(t.use) != 0 {
+		t.interp.Use(t.use)
+	}
+
+	// if we already have some imports
+	// import them
+	if len(t.imports) != 0 {
+		if _, err := t.safeEval(t.imports.ImportBlock()); err != nil {
+			return err
+		}
 	}
 
 	// import fmt
@@ -436,9 +435,6 @@ func (*Template) hasPackage(s string) (bool, error) {
 
 // Import imports the specified imports to the interpreter.
 func (t *Template) Import(imports ...Import) error {
-	if t.interp == nil {
-		return errors.New("template must be parsed before Import can be used")
-	}
 	var symbolsToImport importSymbols
 	for _, symbol := range imports {
 		if !t.imports.Contains(symbol) {
@@ -450,8 +446,10 @@ func (t *Template) Import(imports ...Import) error {
 		return nil
 	}
 
-	if _, err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
-		return err
+	if t.interp != nil { // if we have an interpreter, import right now
+		if _, err := t.safeEval(symbolsToImport.ImportBlock()); err != nil {
+			return err
+		}
 	}
 	t.imports = append(t.imports, symbolsToImport...)
 	return nil
@@ -463,4 +461,53 @@ func (t *Template) MustImport(imports ...Import) *Template {
 		panic(err)
 	}
 	return t
+}
+
+// Use loads binary runtime symbols in the interpreter context so
+// they can be used in interpreted code.
+func (t *Template) Use(values ...interp.Exports) error {
+	return t.useExports(mergeExports(values...))
+}
+
+func (t *Template) useExports(values interp.Exports) error {
+	if len(values) == 0 {
+		return nil
+	}
+
+	t.use = mergeExports(t.use, values)
+	// if we have an interpreter, use right now
+	if t.interp != nil {
+		t.interp.Use(t.use)
+	}
+	return nil
+}
+
+// MustUse is like Use, except it panics on failure.
+func (t *Template) MustUse(values ...interp.Exports) *Template {
+	if err := t.Use(values...); err != nil {
+		panic(err)
+	}
+	return t
+}
+
+func mergeExports(values ...interp.Exports) interp.Exports {
+	result := make(map[string]*map[string]reflect.Value)
+	for i := range values {
+		for packageName, funcMap := range values[i] {
+			existingFuncMap, ok := result[packageName]
+			if !ok {
+				m := make(map[string]reflect.Value)
+				existingFuncMap = &m
+				result[packageName] = existingFuncMap
+			}
+			for funcName, funcReference := range funcMap {
+				(*existingFuncMap)[funcName] = funcReference
+			}
+		}
+	}
+	r := make(interp.Exports, len(result))
+	for s, m := range result {
+		r[s] = *m
+	}
+	return r
 }
