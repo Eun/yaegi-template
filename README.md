@@ -15,31 +15,34 @@ func main() {
 	template.MustParseString(`
 <html>
 <$
-	import "time"
-	func GreetUser(name string) {
-		fmt.Printf("Hello %s, it is %s", name, time.Now().Format(time.Kitchen))
-	}
+    import (
+        "fmt"
+        "time"
+    )
+    func GreetUser(name string) {
+        fmt.Printf("Hello %s, it is %s", name, time.Now().Format(time.Kitchen))
+    }
 $>
 
 <p>
 <$
-	if context.LoggedIn {
-		GreetUser(context.UserName)
-	}
+    if context.LoggedIn {
+        GreetUser(context.UserName)
+    }
 $>
 </p>
 </html>
 `)
 
-	type Context struct {
-		LoggedIn bool
-		UserName string
-	}
+    type Context struct {
+        LoggedIn bool
+        UserName string
+    }
 
-	template.MustExec(os.Stdout, &Context{
-		LoggedIn: true,
-		UserName: "Joe Doe",
-	})
+    template.MustExec(os.Stdout, &Context{
+        LoggedIn: true,
+        UserName: "Joe Doe",
+    })
 }
 ```
 
