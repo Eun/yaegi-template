@@ -25,6 +25,7 @@ func TestExec(t *testing.T) {
 		Name         string
 		Options      interp.Options
 		Use          []interp.Exports
+		Imports      []Import
 		Template     string
 		ExpectOutput string
 		ExpectError  string
@@ -33,7 +34,8 @@ func TestExec(t *testing.T) {
 			"Hello Yaegi",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
-			`<html><$fmt.Print("Hello Yaegi")$></html>`,
+			nil,
+			`<html><$print("Hello Yaegi")$></html>`,
 			`<html>Hello Yaegi</html>`,
 			"",
 		},
@@ -41,6 +43,7 @@ func TestExec(t *testing.T) {
 			"Func",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			[]Import{{Name: "", Path: "fmt"}},
 			`<html><$func Foo(text string) {
 	fmt.Printf("Hello %s", text)
 }$>
@@ -56,6 +59,7 @@ func TestExec(t *testing.T) {
 			"Error",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			nil,
 			`<$ Hello $>`,
 			"",
 			`1:29: undefined: Hello`,
@@ -64,7 +68,8 @@ func TestExec(t *testing.T) {
 			"Import",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
-			`<$import "net/url"$><$fmt.Print(url.PathEscape("Hello World"))$>`,
+			nil,
+			`<$import "net/url"$><$print(url.PathEscape("Hello World"))$>`,
 			"Hello%20World",
 			"",
 		},
@@ -73,7 +78,7 @@ func TestExec(t *testing.T) {
 	for i := range tests {
 		test := tests[i]
 		t.Run(test.Name, func(t *testing.T) {
-			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
+			template := MustNew(test.Options, test.Use...).MustImport(test.Imports...).MustParseString(test.Template)
 			var buf bytes.Buffer
 			n, err := template.Exec(&buf, nil)
 			if test.ExpectError == "" {
@@ -97,6 +102,7 @@ func TestExecWithContext(t *testing.T) {
 		Name                   string
 		Options                interp.Options
 		Use                    []interp.Exports
+		Imports                []Import
 		Template               string
 		ContextRun1            interface{}
 		ExpectContextAfterRun1 interface{}
@@ -110,6 +116,7 @@ func TestExecWithContext(t *testing.T) {
 			"Struct",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			[]Import{{Name: "", Path: "fmt"}},
 			`Hello <$fmt.Printf("%s (%d)", context.Name, context.ID)$>`,
 			User{10, "Yaegi"},
 			User{10, "Yaegi"},
@@ -123,6 +130,7 @@ func TestExecWithContext(t *testing.T) {
 			"PtrStruct",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			[]Import{{Name: "", Path: "fmt"}},
 			`Hello <$fmt.Printf("%s (%d)", context.Name, context.ID)$>`,
 			&User{10, "Yaegi"},
 			&User{10, "Yaegi"},
@@ -136,6 +144,7 @@ func TestExecWithContext(t *testing.T) {
 			"Map",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			[]Import{{Name: "", Path: "fmt"}},
 			`<$fmt.Printf("%d %s", context["Foo"], context["Bar"])$>`,
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
 			map[string]interface{}{"Foo": 10, "Bar": "Yaegi"},
@@ -149,6 +158,7 @@ func TestExecWithContext(t *testing.T) {
 			"Package",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			[]Import{{Name: "", Path: "fmt"}},
 			`<$
 package main
 func main() {
@@ -167,6 +177,7 @@ fmt.Printf("%d %s", context["Foo"], context["Bar"])
 			"Package (Indented)",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
+			[]Import{{Name: "", Path: "fmt"}},
 			`<$
 	package main
 	func main() {
@@ -186,7 +197,7 @@ fmt.Printf("%d %s", context["Foo"], context["Bar"])
 	for i := range tests {
 		test := tests[i]
 		t.Run(test.Name, func(t *testing.T) {
-			template := MustNew(test.Options, test.Use...).MustParseString(test.Template)
+			template := MustNew(test.Options, test.Use...).MustImport(test.Imports...).MustParseString(test.Template)
 			var buf bytes.Buffer
 			n, err := template.Exec(&buf, test.ContextRun1)
 			if test.ExpectError == "" {
@@ -215,7 +226,7 @@ fmt.Printf("%d %s", context["Foo"], context["Bar"])
 
 func TestTemplate_MustParse(t *testing.T) {
 	template := MustNew(interp.Options{}, stdlib.Symbols).
-		MustParse(bytes.NewBufferString(`Hello <$ fmt.Print("Yaegi") $>`))
+		MustParse(bytes.NewBufferString(`Hello <$ print("Yaegi") $>`))
 
 	var buf bytes.Buffer
 	if _, err := template.Exec(&buf, nil); err != nil {
@@ -234,9 +245,11 @@ func TestMultiExec(t *testing.T) {
 	var templates []*Template
 
 	for i := 0; i < 3; i++ {
-		t := MustNew(interp.Options{}, stdlib.Symbols)
-		t.MustParseString(`<$fmt.Printf("Hello ` + strconv.Itoa(i) + ` %s", context.Message)$>`)
-		templates = append(templates, t)
+		templates = append(templates,
+			MustNew(interp.Options{}, stdlib.Symbols).
+				MustImport(Import{Name: "", Path: "fmt"}).
+				MustParseString(`<$fmt.Printf("Hello `+strconv.Itoa(i)+` %s", context.Message)$>`),
+		)
 	}
 
 	run := func(i int) func(t *testing.T) {
@@ -256,23 +269,25 @@ func TestMultiExec(t *testing.T) {
 }
 
 func TestFmtSprintf(t *testing.T) {
-	template := MustNew(interp.Options{}, stdlib.Symbols)
-	template.MustParseString(`<$fmt.Printf(fmt.Sprintf("Hello %s", "World"))$>`)
+	template := MustNew(interp.Options{}, stdlib.Symbols).
+		MustImport(Import{Name: "", Path: "fmt"}).
+		MustParseString(`<$fmt.Printf(fmt.Sprintf("Hello %s", "World"))$>`)
 	var buf bytes.Buffer
 	template.MustExec(&buf, nil)
 	require.Equal(t, "Hello World", buf.String())
 }
 
 func TestPanic(t *testing.T) {
-	template := MustNew(interp.Options{}, stdlib.Symbols)
-	template.MustParseString(`<$panic("Oh no")$>`)
+	template := MustNew(interp.Options{}, stdlib.Symbols).
+		MustParseString(`<$panic("Oh no")$>`)
 	var buf bytes.Buffer
 	_, err := template.Exec(&buf, nil)
 	require.EqualError(t, err, "Oh no")
 }
 
 func TestNoStartOrEnd(t *testing.T) {
-	template := MustNew(interp.Options{}, stdlib.Symbols)
+	template := MustNew(interp.Options{}, stdlib.Symbols).
+		MustImport(Import{Name: "", Path: "fmt"})
 	template.StartTokens = []rune{}
 	template.EndTokens = []rune{}
 	template.MustParseString(`fmt.Printf(fmt.Sprintf("Hello %s", "World"))`)
@@ -306,7 +321,8 @@ func World() string {
 	t.Run("simple", func(t *testing.T) {
 		template := MustNew(interp.Options{
 			GoPath: tmp,
-		}, stdlib.Symbols)
+		}, stdlib.Symbols).
+			MustImport(Import{Name: "", Path: "fmt"})
 		template.StartTokens = []rune{}
 		template.EndTokens = []rune{}
 		template.MustParseString(`
@@ -325,7 +341,8 @@ fmt.Printf(fmt.Sprintf("Hello %s", world.World()))`)
 	t.Run("multi import", func(t *testing.T) {
 		template := MustNew(interp.Options{
 			GoPath: tmp,
-		}, stdlib.Symbols)
+		}, stdlib.Symbols).
+			MustImport(Import{Name: "", Path: "fmt"})
 		template.StartTokens = []rune{}
 		template.EndTokens = []rune{}
 		template.MustParseString(`
@@ -416,7 +433,8 @@ fmt.Printf(fmt.Sprintf("Hello %s", World()))`)
 	t.Run("package", func(t *testing.T) {
 		template := MustNew(interp.Options{
 			GoPath: tmp,
-		}, stdlib.Symbols)
+		}, stdlib.Symbols).
+			MustImport(Import{Name: "", Path: "fmt"})
 		template.StartTokens = []rune{}
 		template.EndTokens = []rune{}
 		template.MustParseString(`
@@ -508,7 +526,7 @@ func TestTemplate_ExecToNilWriter(t *testing.T) {
 func TestTemplate_Import(t *testing.T) {
 	t.Run("single", func(t *testing.T) {
 		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
-			MustParseString(`Hello <$ fmt.Print(http.StatusOK) $>`).
+			MustParseString(`Hello <$ print(http.StatusOK) $>`).
 			MustImport(Import{
 				Path: "net/http",
 			})
@@ -518,7 +536,7 @@ func TestTemplate_Import(t *testing.T) {
 	})
 	t.Run("double import", func(t *testing.T) {
 		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
-			MustParseString(`Hello <$ fmt.Print(http.StatusOK) $>`).
+			MustParseString(`Hello <$ print(http.StatusOK) $>`).
 			MustImport(Import{
 				Path: "net/http",
 			}).
@@ -531,7 +549,7 @@ func TestTemplate_Import(t *testing.T) {
 	})
 	t.Run("alias import", func(t *testing.T) {
 		tm := MustNew(DefaultOptions(), DefaultSymbols()...).
-			MustParseString(`Hello <$ fmt.Print(h.StatusOK) $>`).
+			MustParseString(`Hello <$ print(h.StatusOK) $>`).
 			MustImport(Import{
 				Name: "h",
 				Path: "net/http",
@@ -548,7 +566,7 @@ func TestTemplate_Import(t *testing.T) {
 			MustImport(Import{
 				Path: "net/http",
 			}).
-			MustParseString(`Hello <$ fmt.Print(http.StatusOK) $>`)
+			MustParseString(`Hello <$ print(http.StatusOK) $>`)
 		var buf bytes.Buffer
 		tm.MustExec(&buf, nil)
 		require.Equal(t, "Hello 200", buf.String())
@@ -571,7 +589,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 				MustImport(Import{
 					Path: "ext",
 				}).
-				MustParseString(`Hello <$ fmt.Print(ext.Foo()) $>`).
+				MustParseString(`Hello <$ print(ext.Foo()) $>`).
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
@@ -590,7 +608,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 					Name: ".",
 					Path: "ext",
 				}).
-				MustParseString(`Hello <$ fmt.Print(Foo()) $>`).
+				MustParseString(`Hello <$ print(Foo()) $>`).
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
@@ -609,7 +627,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 					Name: ".",
 					Path: "ext",
 				}).
-				MustParseString(`Hello <$ fmt.Print(foo()) $>`).
+				MustParseString(`Hello <$ print(foo()) $>`).
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
@@ -629,7 +647,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 					},
 				}).
 				MustImport(Import{Path: "ext"}).
-				MustParseString(`Hello <$ fmt.Print(ext.Foo()) $>`).
+				MustParseString(`Hello <$ print(ext.Foo()) $>`).
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
@@ -646,7 +664,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 					},
 				}).
 				MustImport(Import{Name: ".", Path: "ext"}).
-				MustParseString(`Hello <$ fmt.Print(Foo()) $>`).
+				MustParseString(`Hello <$ print(Foo()) $>`).
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
@@ -663,7 +681,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 					},
 				}).
 				MustImport(Import{Name: ".", Path: "ext"}).
-				MustParseString(`Hello <$ fmt.Print(foo()) $>`).
+				MustParseString(`Hello <$ print(foo()) $>`).
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})

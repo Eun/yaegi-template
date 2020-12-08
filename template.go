@@ -181,11 +181,7 @@ func (t *Template) LazyParse(reader io.Reader) error {
 		}
 	}
 
-	// import fmt
-	return t.Import(Import{
-		Name: "",
-		Path: "fmt",
-	})
+	return nil
 }
 
 // MustLazyParse is like LazyParse, except it panics on failure.
