@@ -288,8 +288,12 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				// Get type from ancestor (implicit type)
 				if n.anc.kind == keyValueExpr && n == n.anc.child[0] {
 					n.typ = n.anc.typ.key
-				} else if n.anc.typ != nil {
-					n.typ = n.anc.typ.val
+				} else if atyp := n.anc.typ; atyp != nil {
+					if atyp.cat == valueT {
+						n.typ = &itype{cat: valueT, rtype: atyp.rtype.Elem()}
+					} else {
+						n.typ = atyp.val
+					}
 				}
 				if n.typ == nil {
 					err = n.cfgErrorf("undefined type")
@@ -607,7 +611,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				}
 				if n.anc.kind == constDecl {
 					n.gen = nop
-					n.findex = -1
+					n.findex = notInFrame
 					if sym, _, ok := sc.lookup(dest.ident); ok {
 						sym.kind = constSym
 					}
@@ -648,7 +652,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				if n.child[0].ident == "_" {
 					lc.gen = typeAssertStatus
 				} else {
-					lc.gen = typeAssert2
+					lc.gen = typeAssertLong
 				}
 				n.gen = nop
 			case unaryExpr:
@@ -713,7 +717,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				// This operation involved constants, and the result is already computed
 				// by constOp and available in n.rval. Nothing else to do at execution.
 				n.gen = nop
-				n.findex = -1
+				n.findex = notInFrame
 			case n.anc.kind == assignStmt && n.anc.action == aAssign:
 				// To avoid a copy in frame, if the result is to be assigned, store it directly
 				// at the frame location of destination.
@@ -854,7 +858,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				}
 				switch {
 				case n.typ.cat == builtinT:
-					n.findex = -1
+					n.findex = notInFrame
 					n.val = nil
 				case n.anc.kind == returnStmt:
 					// Store result directly to frame output location, to avoid a frame copy.
@@ -896,7 +900,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 					n.rval = c1.rval
 				case c1.rval.IsValid() && isConstType(c0.typ):
 					n.gen = nop
-					n.findex = -1
+					n.findex = notInFrame
 					n.typ = c0.typ
 					if c, ok := c1.rval.Interface().(constant.Value); ok {
 						i, _ := constant.Int64Val(constant.ToInt(c))
@@ -959,7 +963,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 						}
 					}
 				} else {
-					n.findex = -1
+					n.findex = notInFrame
 				}
 			}
 
@@ -1040,7 +1044,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 		case fileStmt:
 			wireChild(n, varDecl)
 			sc = sc.pop()
-			n.findex = -1
+			n.findex = notInFrame
 
 		case forStmt0: // for {}
 			body := n.child[0]
@@ -1498,6 +1502,9 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				// Resolve source package symbol
 				if sym, ok := interp.srcPkg[pkg][name]; ok {
 					n.findex = sym.index
+					if sym.global {
+						n.level = globalFrame
+					}
 					n.val = sym.node
 					n.gen = nop
 					n.action = aGetSym
@@ -1512,7 +1519,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				if n.child[0].isType(sc) {
 					// Handle method as a function with receiver in 1st argument
 					n.val = m
-					n.findex = -1
+					n.findex = notInFrame
 					n.gen = nop
 					n.typ = &itype{}
 					*n.typ = *m.typ
@@ -1825,7 +1832,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 			switch {
 			case n.rval.IsValid():
 				n.gen = nop
-				n.findex = -1
+				n.findex = notInFrame
 			case n.anc.kind == assignStmt && n.anc.action == aAssign:
 				dest := n.anc.child[childPos(n)-n.anc.nright]
 				n.typ = dest.typ
@@ -1852,6 +1859,7 @@ func (interp *Interpreter) cfg(root *node, importPath string) ([]*node, error) {
 				if sc.global {
 					// Global object allocation is already performed in GTA.
 					index = sc.sym[c.ident].index
+					c.level = globalFrame
 				} else {
 					index = sc.add(n.typ)
 					sc.sym[c.ident] = &symbol{index: index, kind: varSym, typ: n.typ}
@@ -1878,8 +1886,15 @@ func compDefineX(sc *scope, n *node) error {
 		if err != nil {
 			return err
 		}
+		for funtype.cat == valueT && funtype.val != nil {
+			// Retrieve original interpreter type from a wrapped function.
+			// Struct fields of function types are always wrapped in valueT to ensure
+			// their possible use in runtime. In that case, the val field retains the
+			// original interpreter type, which is used now.
+			funtype = funtype.val
+		}
 		if funtype.cat == valueT {
-			// Handle functions imported from runtime
+			// Handle functions imported from runtime.
 			for i := 0; i < funtype.rtype.NumOut(); i++ {
 				types = append(types, &itype{cat: valueT, rtype: funtype.rtype.Out(i)})
 			}
@@ -1903,7 +1918,7 @@ func compDefineX(sc *scope, n *node) error {
 		if n.child[0].ident == "_" {
 			n.child[l].gen = typeAssertStatus
 		} else {
-			n.child[l].gen = typeAssert2
+			n.child[l].gen = typeAssertLong
 		}
 		types = append(types, n.child[l].child[1].typ, sc.getType("bool"))
 		n.gen = nop
@@ -2473,6 +2488,8 @@ func compositeGenerator(n *node, typ *itype, rtyp reflect.Type) (gen bltnGenerat
 			gen = compositeBinMap
 		case reflect.Ptr:
 			gen = compositeGenerator(n, typ, n.typ.val.rtype)
+		case reflect.Slice:
+			gen = compositeBinSlice
 		default:
 			log.Panic(n.cfgErrorf("compositeGenerator not implemented for type kind: %s", k))
 		}
