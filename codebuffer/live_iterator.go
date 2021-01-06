@@ -217,7 +217,7 @@ func (i *liveIterator) readCodeBlock() (*Part, bool, error) {
 			return constructCodePath(contentBuffer.Bytes()), true, nil
 		}
 
-		if r == i.endSequence[pos] { //nolint:nestif // moving this block into another function would make this complex
+		if r == i.endSequence[pos] {
 			// we found the current needed rune
 			seqBuffer[pos] = r
 			pos++
