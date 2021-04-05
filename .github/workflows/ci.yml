@@ -10,7 +10,7 @@ jobs:
       -
         name: lint
         continue-on-error: false
-        uses: golangci/golangci-lint-action@v2
+        uses: golangci/golangci-lint-action@v2.5.2
         with:
           version: latest
           # Optional: show only new issues if it's a pull request. The default value is `false`.
