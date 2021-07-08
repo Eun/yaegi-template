@@ -38,6 +38,7 @@ const (
 	int64T
 	mapT
 	ptrT
+	sliceT
 	srcPkgT
 	stringT
 	structT
@@ -75,6 +76,7 @@ var cats = [...]string{
 	int64T:      "int64T",
 	mapT:        "mapT",
 	ptrT:        "ptrT",
+	sliceT:      "sliceT",
 	srcPkgT:     "srcPkgT",
 	stringT:     "stringT",
 	structT:     "structT",
@@ -109,19 +111,18 @@ type itype struct {
 	cat         tcat          // Type category
 	field       []structField // Array of struct fields if structT or interfaceT
 	key         *itype        // Type of key element if MapT or nil
-	val         *itype        // Type of value element if chanT, chanSendT, chanRecvT, mapT, ptrT, aliasT, arrayT or variadicT
+	val         *itype        // Type of value element if chanT, chanSendT, chanRecvT, mapT, ptrT, aliasT, arrayT, sliceT or variadicT
 	recv        *itype        // Receiver type for funcT or nil
 	arg         []*itype      // Argument types if funcT or nil
 	ret         []*itype      // Return types if funcT or nil
 	method      []*node       // Associated methods or nil
 	name        string        // name of type within its package for a defined type
 	path        string        // for a defined type, the package import path
-	size        int           // Size of array if ArrayT
+	length      int           // length of array if ArrayT
 	rtype       reflect.Type  // Reflection type if ValueT, or nil
 	incomplete  bool          // true if type must be parsed again (out of order declarations)
 	recursive   bool          // true if the type has an element which refer to itself
 	untyped     bool          // true for a literal value (string or number)
-	sizedef     bool          // true if array size is computed from type definition
 	isBinMethod bool          // true if the type refers to a bin method function
 	node        *node         // root AST node of type definition
 	scope       *scope        // type declaration scope (in case of re-parse incomplete type)
@@ -141,9 +142,6 @@ func errorMethodType(sc *scope) *itype {
 // nodeType returns a type definition for the corresponding AST subtree.
 func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 	if n.typ != nil && !n.typ.incomplete {
-		if n.kind == sliceExpr {
-			n.typ.sizedef = false
-		}
 		return n.typ, nil
 	}
 
@@ -169,10 +167,10 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 		t.incomplete = t.val.incomplete
 
 	case arrayType:
-		t.cat = arrayT
 		c0 := n.child[0]
 		if len(n.child) == 1 {
 			// Array size is not defined.
+			t.cat = sliceT
 			if t.val, err = nodeType(interp, sc, c0); err != nil {
 				return nil, err
 			}
@@ -180,18 +178,19 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 			break
 		}
 		// Array size is defined.
+		t.cat = arrayT
 		switch v := c0.rval; {
 		case v.IsValid():
 			// Size if defined by a constant litteral value.
 			if isConstantValue(v.Type()) {
 				c := v.Interface().(constant.Value)
-				t.size = constToInt(c)
+				t.length = constToInt(c)
 			} else {
-				t.size = int(v.Int())
+				t.length = int(v.Int())
 			}
 		case c0.kind == ellipsisExpr:
 			// [...]T expression, get size from the length of composite array.
-			t.size = arrayTypeLen(n.anc)
+			t.length = arrayTypeLen(n.anc)
 		case c0.kind == identExpr:
 			sym, _, ok := sc.lookup(c0.ident)
 			if !ok {
@@ -207,11 +206,11 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 				break
 			}
 			if v, ok := sym.rval.Interface().(int); ok {
-				t.size = v
+				t.length = v
 				break
 			}
 			if c, ok := sym.rval.Interface().(constant.Value); ok {
-				t.size = constToInt(c)
+				t.length = constToInt(c)
 				break
 			}
 			t.incomplete = true
@@ -225,12 +224,11 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 				t.incomplete = true
 				break
 			}
-			t.size = constToInt(v)
+			t.length = constToInt(v)
 		}
 		if t.val, err = nodeType(interp, sc, n.child[1]); err != nil {
 			return nil, err
 		}
-		t.sizedef = true
 		t.incomplete = t.incomplete || t.val.incomplete
 
 	case basicLit:
@@ -279,40 +277,26 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 			}
 		}
 
-		// Because an empty interface concrete type "mutates" as different values are
-		// assigned to it, we need to make a new itype from scratch everytime a new
-		// assignment is made, and not let different nodes (of the same variable) share the
-		// same itype. Otherwise they would overwrite each other.
-		if n.anc.kind == assignStmt && isInterface(n.anc.child[0].typ) && len(n.anc.child[0].typ.field) == 0 {
-			// TODO(mpl): do the indexes properly for multiple assignments on the same line.
-			// Also, maybe we should use nodeType to figure out dt.cat? but isn't it always
-			// gonna be an interfaceT anyway?
-			dt := new(itype)
-			dt.cat = interfaceT
-			val := new(itype)
-			val.cat = t.cat
-			dt.val = val
-			// TODO(mpl): do the indexes properly for multiple assignments on the same line.
-			// Also, maybe we should use nodeType to figure out dt.cat? but isn't it always
-			// gonna be an interfaceT anyway?
-			n.anc.child[0].typ = dt
-			// TODO(mpl): not sure yet whether we should do that last step. It doesn't seem
-			// to change anything either way though.
-			// t = dt
-			break
-		}
-
 		// If the node is to be assigned or returned, the node type is the destination type.
 		dt := t
 
 		switch a := n.anc; {
+		case a.kind == assignStmt && isEmptyInterface(a.child[0].typ):
+			// Because an empty interface concrete type "mutates" as different values are
+			// assigned to it, we need to make a new itype from scratch everytime a new
+			// assignment is made, and not let different nodes (of the same variable) share the
+			// same itype. Otherwise they would overwrite each other.
+			a.child[0].typ = &itype{cat: interfaceT, val: dt}
+
 		case a.kind == defineStmt && len(a.child) > a.nleft+a.nright:
 			if dt, err = nodeType(interp, sc, a.child[a.nleft]); err != nil {
 				return nil, err
 			}
+
 		case a.kind == returnStmt:
 			dt = sc.def.typ.ret[childPos(n)]
 		}
+
 		if isInterface(dt) {
 			dt.val = t
 		}
@@ -503,7 +487,7 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 			break
 		}
 		switch lt.cat {
-		case arrayT, mapT:
+		case arrayT, mapT, sliceT, variadicT:
 			t = lt.val
 		}
 
@@ -626,15 +610,14 @@ func nodeType(interp *Interpreter, sc *scope, n *node) (*itype, error) {
 
 	case sliceExpr:
 		t, err = nodeType(interp, sc, n.child[0])
+		if err != nil {
+			return nil, err
+		}
 		if t.cat == ptrT {
 			t = t.val
 		}
-		if err == nil && t.size != 0 {
-			t1 := *t
-			t1.size = 0
-			t1.sizedef = false
-			t1.rtype = nil
-			t = &t1
+		if t.cat == arrayT {
+			t = &itype{cat: sliceT, val: t.val, incomplete: t.incomplete, node: n, scope: sc}
 		}
 
 	case structType:
@@ -786,7 +769,7 @@ func (t *itype) referTo(name string, seen map[*itype]bool) bool {
 	}
 	seen[t] = true
 	switch t.cat {
-	case aliasT, arrayT, chanT, chanRecvT, chanSendT, ptrT:
+	case aliasT, arrayT, chanT, chanRecvT, chanSendT, ptrT, sliceT, variadicT:
 		return t.val.referTo(name, seen)
 	case funcT:
 		for _, a := range t.arg {
@@ -894,6 +877,10 @@ func (t *itype) isRecursive() bool {
 	return false
 }
 
+func (t *itype) isIndirectRecursive() bool {
+	return t.isRecursive() || t.val != nil && t.val.isIndirectRecursive()
+}
+
 // isVariadic returns true if the function type is variadic.
 // If the type is not a function or is not variadic, it will
 // return false.
@@ -930,7 +917,7 @@ func isComplete(t *itype, visited map[string]bool) bool {
 			return true
 		}
 		fallthrough
-	case arrayT, chanT, chanRecvT, chanSendT, ptrT:
+	case arrayT, chanT, chanRecvT, chanSendT, ptrT, sliceT, variadicT:
 		return isComplete(t.val, visited)
 	case funcT:
 		complete := true
@@ -968,7 +955,7 @@ func (t *itype) assignableTo(o *itype) bool {
 		return true
 	}
 	if t.cat == aliasT && o.cat == aliasT {
-		// if alias types are not identical, it is not assignable.
+		// If alias types are not identical, it is not assignable.
 		return false
 	}
 	if t.isNil() && o.hasNil() || o.isNil() && t.hasNil() {
@@ -980,6 +967,11 @@ func (t *itype) assignableTo(o *itype) bool {
 	}
 
 	if isInterface(o) && t.implements(o) {
+		return true
+	}
+
+	if t.isBinMethod && isFunc(o) {
+		// TODO (marc): check that t without receiver as first parameter is equivalent to o.
 		return true
 	}
 
@@ -1068,6 +1060,10 @@ func (t *itype) methods() methodSet {
 		seen[typ] = true
 
 		switch typ.cat {
+		case aliasT:
+			for k, v := range getMethods(typ.val) {
+				res[k] = v
+			}
 		case interfaceT:
 			// Get methods from recursive analysis of interface fields.
 			for _, f := range typ.field {
@@ -1129,11 +1125,7 @@ func (t *itype) id() (res string) {
 	case nilT:
 		res = "nil"
 	case arrayT:
-		if t.size == 0 {
-			res = "[]" + t.val.id()
-		} else {
-			res = "[" + strconv.Itoa(t.size) + "]" + t.val.id()
-		}
+		res = "[" + strconv.Itoa(t.length) + "]" + t.val.id()
 	case chanT:
 		res = "chan " + t.val.id()
 	case chanSendT:
@@ -1166,6 +1158,8 @@ func (t *itype) id() (res string) {
 		res = "map[" + t.key.id() + "]" + t.val.id()
 	case ptrT:
 		res = "*" + t.val.id()
+	case sliceT:
+		res = "[]" + t.val.id()
 	case structT:
 		res = "struct{"
 		for _, t := range t.field {
@@ -1173,13 +1167,42 @@ func (t *itype) id() (res string) {
 		}
 		res += "}"
 	case valueT:
+		if isConstantValue(t.rtype) {
+			res = fixPossibleConstType(t.rtype).String()
+			break
+		}
 		res = ""
 		if t.rtype.PkgPath() != "" {
 			res += t.rtype.PkgPath() + "."
 		}
 		res += t.rtype.Name()
+	case variadicT:
+		res = "..." + t.val.id()
 	}
 	return res
+}
+
+// fixPossibleConstType returns the input type if it not a constant value,
+// otherwise, it returns the default Go type corresponding to the
+// constant.Value.
+func fixPossibleConstType(t reflect.Type) (r reflect.Type) {
+	cv, ok := reflect.New(t).Elem().Interface().(constant.Value)
+	if !ok {
+		return t
+	}
+	switch cv.Kind() {
+	case constant.Bool:
+		r = reflect.TypeOf(true)
+	case constant.Int:
+		r = reflect.TypeOf(0)
+	case constant.String:
+		r = reflect.TypeOf("")
+	case constant.Float:
+		r = reflect.TypeOf(float64(0))
+	case constant.Complex:
+		r = reflect.TypeOf(complex128(0))
+	}
+	return r
 }
 
 // zero instantiates and return a zero value object for the given type during execution.
@@ -1191,7 +1214,7 @@ func (t *itype) zero() (v reflect.Value, err error) {
 	case aliasT:
 		v, err = t.val.zero()
 
-	case arrayT, ptrT, structT:
+	case arrayT, ptrT, structT, sliceT:
 		v = reflect.New(t.frameType()).Elem()
 
 	case valueT:
@@ -1231,24 +1254,36 @@ func (t *itype) fieldSeq(seq []int) *itype {
 
 // lookupField returns a list of indices, i.e. a path to access a field in a struct object.
 func (t *itype) lookupField(name string) []int {
-	switch t.cat {
-	case aliasT, ptrT:
-		return t.val.lookupField(name)
-	}
-	if fi := t.fieldIndex(name); fi >= 0 {
-		return []int{fi}
-	}
+	seen := map[*itype]bool{}
+	var lookup func(*itype) []int
 
-	for i, f := range t.field {
-		switch f.typ.cat {
-		case ptrT, structT, interfaceT, aliasT:
-			if index2 := f.typ.lookupField(name); len(index2) > 0 {
-				return append([]int{i}, index2...)
+	lookup = func(typ *itype) []int {
+		if seen[typ] {
+			return nil
+		}
+		seen[typ] = true
+
+		switch typ.cat {
+		case aliasT, ptrT:
+			return lookup(typ.val)
+		}
+		if fi := typ.fieldIndex(name); fi >= 0 {
+			return []int{fi}
+		}
+
+		for i, f := range typ.field {
+			switch f.typ.cat {
+			case ptrT, structT, interfaceT, aliasT:
+				if index2 := lookup(f.typ); len(index2) > 0 {
+					return append([]int{i}, index2...)
+				}
 			}
 		}
+
+		return nil
 	}
 
-	return nil
+	return lookup(t)
 }
 
 // lookupBinField returns a structfield and a path to access an embedded binary field in a struct object.
@@ -1259,9 +1294,12 @@ func (t *itype) lookupBinField(name string) (s reflect.StructField, index []int,
 	if !isStruct(t) {
 		return
 	}
-	rt := t.rtype
-	if t.cat == valueT && rt.Kind() == reflect.Ptr {
+	rt := t.TypeOf()
+	for t.cat == valueT && rt.Kind() == reflect.Ptr {
 		rt = rt.Elem()
+	}
+	if rt.Kind() != reflect.Struct {
+		return
 	}
 	s, ok = rt.FieldByName(name)
 	if !ok {
@@ -1293,6 +1331,13 @@ func (t *itype) methodCallType() reflect.Type {
 	return reflect.FuncOf(it, ot, t.rtype.IsVariadic())
 }
 
+func (t *itype) resolveAlias() *itype {
+	for t.cat == aliasT {
+		t = t.val
+	}
+	return t
+}
+
 // GetMethod returns a pointer to the method definition.
 func (t *itype) getMethod(name string) *node {
 	for _, m := range t.method {
@@ -1319,6 +1364,9 @@ func (t *itype) lookupMethod(name string) (*node, []int) {
 					return n, index
 				}
 			}
+		}
+		if t.cat == aliasT || isInterfaceSrc(t) && t.val != nil {
+			return t.val.lookupMethod(name)
 		}
 	}
 	return m, index
@@ -1438,12 +1486,10 @@ func (t *itype) refType(defined map[string]*itype, wrapRecursive bool) reflect.T
 	switch t.cat {
 	case aliasT:
 		t.rtype = t.val.refType(defined, wrapRecursive)
-	case arrayT, variadicT:
-		if t.sizedef {
-			t.rtype = reflect.ArrayOf(t.size, t.val.refType(defined, wrapRecursive))
-		} else {
-			t.rtype = reflect.SliceOf(t.val.refType(defined, wrapRecursive))
-		}
+	case arrayT:
+		t.rtype = reflect.ArrayOf(t.length, t.val.refType(defined, wrapRecursive))
+	case sliceT, variadicT:
+		t.rtype = reflect.SliceOf(t.val.refType(defined, wrapRecursive))
 	case chanT:
 		t.rtype = reflect.ChanOf(reflect.BothDir, t.val.refType(defined, wrapRecursive))
 	case chanRecvT:
@@ -1518,12 +1564,10 @@ func (t *itype) frameType() (r reflect.Type) {
 	switch t.cat {
 	case aliasT:
 		r = t.val.frameType()
-	case arrayT, variadicT:
-		if t.sizedef {
-			r = reflect.ArrayOf(t.size, t.val.frameType())
-		} else {
-			r = reflect.SliceOf(t.val.frameType())
-		}
+	case arrayT:
+		r = reflect.ArrayOf(t.length, t.val.frameType())
+	case sliceT, variadicT:
+		r = reflect.SliceOf(t.val.frameType())
 	case funcT:
 		r = reflect.TypeOf((*node)(nil))
 	case interfaceT:
@@ -1533,6 +1577,8 @@ func (t *itype) frameType() (r reflect.Type) {
 			break
 		}
 		r = reflect.TypeOf((*valueInterface)(nil)).Elem()
+	case mapT:
+		r = reflect.MapOf(t.key.frameType(), t.val.frameType())
 	case ptrT:
 		r = reflect.PtrTo(t.val.frameType())
 	default:
@@ -1542,7 +1588,7 @@ func (t *itype) frameType() (r reflect.Type) {
 }
 
 func (t *itype) implements(it *itype) bool {
-	if t.cat == valueT {
+	if isBin(t) {
 		return t.TypeOf().Implements(it.TypeOf())
 	}
 	return t.methods().contains(it.methods())
@@ -1583,6 +1629,13 @@ func (t *itype) hasNil() bool {
 		return true
 	}
 	return false
+}
+
+func (t *itype) elem() *itype {
+	if t.cat == valueT {
+		return &itype{cat: valueT, rtype: t.rtype.Elem()}
+	}
+	return t.val
 }
 
 func copyDefined(m map[string]*itype) map[string]*itype {
@@ -1680,12 +1733,27 @@ func isFunc(t *itype) bool { return t.TypeOf().Kind() == reflect.Func }
 func isMap(t *itype) bool  { return t.TypeOf().Kind() == reflect.Map }
 func isPtr(t *itype) bool  { return t.TypeOf().Kind() == reflect.Ptr }
 
+func isEmptyInterface(t *itype) bool {
+	return t.cat == interfaceT && len(t.field) == 0
+}
+
+func isFuncSrc(t *itype) bool {
+	return t.cat == funcT || (t.cat == aliasT && isFuncSrc(t.val))
+}
+
+func isPtrSrc(t *itype) bool {
+	return t.cat == ptrT || (t.cat == aliasT && isPtrSrc(t.val))
+}
+
 func isSendChan(t *itype) bool {
 	rt := t.TypeOf()
 	return rt.Kind() == reflect.Chan && rt.ChanDir() == reflect.SendDir
 }
 
 func isArray(t *itype) bool {
+	if t.cat == nilT {
+		return false
+	}
 	k := t.TypeOf().Kind()
 	return k == reflect.Array || k == reflect.Slice
 }
@@ -1695,11 +1763,22 @@ func isInterfaceSrc(t *itype) bool {
 }
 
 func isInterfaceBin(t *itype) bool {
-	return t.cat == valueT && t.rtype.Kind() == reflect.Interface
+	return t.cat == valueT && t.rtype.Kind() == reflect.Interface || t.cat == errorT
 }
 
 func isInterface(t *itype) bool {
 	return isInterfaceSrc(t) || t.TypeOf() != nil && t.TypeOf().Kind() == reflect.Interface
+}
+
+func isBin(t *itype) bool {
+	switch t.cat {
+	case valueT:
+		return true
+	case aliasT, ptrT:
+		return isBin(t.val)
+	default:
+		return false
+	}
 }
 
 func isStruct(t *itype) bool {

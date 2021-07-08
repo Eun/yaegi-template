@@ -32,6 +32,9 @@ func (check typecheck) op(p opPredicates, a action, n, c *node, t reflect.Type) 
 //
 // Use typ == nil to indicate assignment to an untyped blank identifier.
 func (check typecheck) assignment(n *node, typ *itype, context string) error {
+	if n.typ == nil {
+		return n.cfgErrorf("invalid type in %s", context)
+	}
 	if n.typ.untyped {
 		if typ == nil || isInterface(typ) {
 			if typ == nil && n.typ.cat == nilT {
@@ -48,7 +51,7 @@ func (check typecheck) assignment(n *node, typ *itype, context string) error {
 		return nil
 	}
 
-	if typ.isRecursive() || typ.val != nil && typ.val.isRecursive() {
+	if typ.isIndirectRecursive() || n.typ.isIndirectRecursive() {
 		return nil
 	}
 
@@ -232,6 +235,15 @@ func (check typecheck) binaryExpr(n *node) error {
 	}
 
 	switch n.action {
+	case aAdd:
+		if n.typ == nil {
+			break
+		}
+		// Catch mixing string and number for "+" operator use.
+		k, k0, k1 := isNumber(n.typ.TypeOf()), isNumber(c0.typ.TypeOf()), isNumber(c1.typ.TypeOf())
+		if k != k0 || k != k1 {
+			return n.cfgErrorf("cannot use type %s as type %s in assignment", c0.typ.id(), n.typ.id())
+		}
 	case aRem:
 		if zeroConst(c1) {
 			return n.cfgErrorf("invalid operation: division by zero")
@@ -289,7 +301,10 @@ func (check typecheck) index(n *node, max int) error {
 }
 
 // arrayLitExpr type checks an array composite literal expression.
-func (check typecheck) arrayLitExpr(child []*node, typ *itype, length int) error {
+func (check typecheck) arrayLitExpr(child []*node, typ *itype) error {
+	cat := typ.cat
+	length := typ.length
+	typ = typ.val
 	visited := make(map[int]bool, len(child))
 	index := 0
 	for _, c := range child {
@@ -301,7 +316,7 @@ func (check typecheck) arrayLitExpr(child []*node, typ *itype, length int) error
 			}
 			n = c.child[1]
 			index = int(vInt(c.child[0].rval))
-		case length > 0 && index >= length:
+		case cat == arrayT && index >= length:
 			return c.cfgErrorf("index %d is out of bounds (>= %d)", index, length)
 		}
 
@@ -904,7 +919,7 @@ func arrayDeref(typ *itype) *itype {
 		return typ
 	}
 
-	if typ.cat == ptrT && typ.val.cat == arrayT && typ.val.sizedef {
+	if typ.cat == ptrT && typ.val.cat == arrayT {
 		return typ.val
 	}
 	return typ
@@ -960,7 +975,7 @@ func (check typecheck) argument(p param, ftyp *itype, i, l int, ellipsis bool) e
 		}
 		t := p.Type().TypeOf()
 		if t.Kind() != reflect.Slice || !(&itype{cat: valueT, rtype: t.Elem()}).assignableTo(atyp) {
-			return p.nod.cfgErrorf("cannot use %s as type %s", p.nod.typ.id(), (&itype{cat: arrayT, val: atyp}).id())
+			return p.nod.cfgErrorf("cannot use %s as type %s", p.nod.typ.id(), (&itype{cat: sliceT, val: atyp}).id())
 		}
 		return nil
 	}
@@ -982,6 +997,8 @@ func getArg(ftyp *itype, i int) *itype {
 		return arg
 	case i < l:
 		return ftyp.in(i)
+	case ftyp.cat == valueT && i < ftyp.rtype.NumIn():
+		return &itype{cat: valueT, rtype: ftyp.rtype.In(i)}
 	default:
 		return nil
 	}
