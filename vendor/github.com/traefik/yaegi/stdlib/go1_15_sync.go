@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	Symbols["sync"] = map[string]reflect.Value{
+	Symbols["sync/sync"] = map[string]reflect.Value{
 		// function, constant and variable definitions
 		"NewCond": reflect.ValueOf(sync.NewCond),
 
@@ -31,6 +31,7 @@ func init() {
 
 // _sync_Locker is an interface wrapper for Locker type
 type _sync_Locker struct {
+	IValue  interface{}
 	WLock   func()
 	WUnlock func()
 }

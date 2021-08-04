@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	Symbols["image/png"] = map[string]reflect.Value{
+	Symbols["image/png/png"] = map[string]reflect.Value{
 		// function, constant and variable definitions
 		"BestCompression":    reflect.ValueOf(png.BestCompression),
 		"BestSpeed":          reflect.ValueOf(png.BestSpeed),
@@ -35,8 +35,9 @@ func init() {
 
 // _image_png_EncoderBufferPool is an interface wrapper for EncoderBufferPool type
 type _image_png_EncoderBufferPool struct {
-	WGet func() *png.EncoderBuffer
-	WPut func(a0 *png.EncoderBuffer)
+	IValue interface{}
+	WGet   func() *png.EncoderBuffer
+	WPut   func(a0 *png.EncoderBuffer)
 }
 
 func (W _image_png_EncoderBufferPool) Get() *png.EncoderBuffer   { return W.WGet() }

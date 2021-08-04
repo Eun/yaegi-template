@@ -10,7 +10,7 @@ import (
 )
 
 func init() {
-	Symbols["testing"] = map[string]reflect.Value{
+	Symbols["testing/testing"] = map[string]reflect.Value{
 		// function, constant and variable definitions
 		"AllocsPerRun":  reflect.ValueOf(testing.AllocsPerRun),
 		"Benchmark":     reflect.ValueOf(testing.Benchmark),
@@ -46,6 +46,7 @@ func init() {
 
 // _testing_TB is an interface wrapper for TB type
 type _testing_TB struct {
+	IValue   interface{}
 	WCleanup func(a0 func())
 	WError   func(args ...interface{})
 	WErrorf  func(format string, args ...interface{})

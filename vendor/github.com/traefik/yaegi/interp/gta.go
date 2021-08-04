@@ -80,9 +80,7 @@ func (interp *Interpreter) gta(root *node, rpath, importPath string) ([]*node, e
 				if typ.isBinMethod {
 					typ = &itype{cat: valueT, rtype: typ.methodCallType(), isBinMethod: true, scope: sc}
 				}
-				if sc.sym[dest.ident] == nil || sc.sym[dest.ident].typ.incomplete {
-					sc.sym[dest.ident] = &symbol{kind: varSym, global: true, index: sc.add(typ), typ: typ, rval: val, node: n}
-				}
+				sc.sym[dest.ident] = &symbol{kind: varSym, global: true, index: sc.add(typ), typ: typ, rval: val, node: n}
 				if n.anc.kind == constDecl {
 					sc.sym[dest.ident].kind = constSym
 					if childPos(n) == len(n.anc.child)-1 {
@@ -189,11 +187,11 @@ func (interp *Interpreter) gta(root *node, rpath, importPath string) ([]*node, e
 			}
 			// Try to import a binary package first, or a source package
 			var pkgName string
-			if interp.binPkg[ipath] != nil {
+			if pkg := interp.binPkg[ipath]; pkg != nil {
 				switch name {
 				case "_": // no import of symbols
 				case ".": // import symbols in current scope
-					for n, v := range interp.binPkg[ipath] {
+					for n, v := range pkg {
 						typ := v.Type()
 						if isBinType(v) {
 							typ = typ.Elem()
@@ -202,9 +200,9 @@ func (interp *Interpreter) gta(root *node, rpath, importPath string) ([]*node, e
 					}
 				default: // import symbols in package namespace
 					if name == "" {
-						name = identifier.FindString(ipath)
+						name = interp.pkgNames[ipath]
 					}
-					// imports of a same package are all mapped in the same scope, so we cannot just
+					// Imports of a same package are all mapped in the same scope, so we cannot just
 					// map them by their names, otherwise we could have collisions from same-name
 					// imports in different source files of the same package. Therefore, we suffix
 					// the key with the basename of the source file.

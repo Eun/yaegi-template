@@ -580,7 +580,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 			MustNew(
 				DefaultOptions(),
 				append(DefaultSymbols(), interp.Exports{
-					"ext": map[string]reflect.Value{
+					"ext/ext": map[string]reflect.Value{
 						"Foo": reflect.ValueOf(func() string {
 							return "foo"
 						}),
@@ -598,7 +598,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 			MustNew(
 				DefaultOptions(),
 				append(DefaultSymbols(), interp.Exports{
-					"ext": map[string]reflect.Value{
+					"ext/ext": map[string]reflect.Value{
 						"Foo": reflect.ValueOf(func() string {
 							return "foo"
 						}),
@@ -617,7 +617,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 			MustNew(
 				DefaultOptions(),
 				append(DefaultSymbols(), interp.Exports{
-					"ext": map[string]reflect.Value{
+					"ext/ext": map[string]reflect.Value{
 						"foo": reflect.ValueOf(func() string {
 							return "foo"
 						}),
@@ -640,7 +640,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 				DefaultOptions(),
 				DefaultSymbols()...).
 				MustUse(interp.Exports{
-					"ext": map[string]reflect.Value{
+					"ext/ext": map[string]reflect.Value{
 						"Foo": reflect.ValueOf(func() string {
 							return "foo"
 						}),
@@ -657,7 +657,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 				DefaultOptions(),
 				DefaultSymbols()...).
 				MustUse(interp.Exports{
-					"ext": map[string]reflect.Value{
+					"ext/ext": map[string]reflect.Value{
 						"Foo": reflect.ValueOf(func() string {
 							return "foo"
 						}),
@@ -674,7 +674,7 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 				DefaultOptions(),
 				DefaultSymbols()...).
 				MustUse(interp.Exports{
-					"ext": map[string]reflect.Value{
+					"ext/ext": map[string]reflect.Value{
 						"foo": reflect.ValueOf(func() string {
 							return "foo"
 						}),
