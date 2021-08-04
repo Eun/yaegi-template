@@ -170,7 +170,9 @@ func (t *Template) LazyParse(reader io.Reader) error {
 	// if we already have some uses
 	// use them
 	if len(t.use) != 0 {
-		t.interp.Use(t.use)
+		if err := t.interp.Use(t.use); err != nil {
+			return errors.Wrap(err, "unable to use")
+		}
 	}
 
 	// if we already have some imports
@@ -476,7 +478,9 @@ func (t *Template) useExports(values interp.Exports) error {
 	t.use = mergeExports(t.use, values)
 	// if we have an interpreter, use right now
 	if t.interp != nil {
-		t.interp.Use(t.use)
+		if err := t.interp.Use(t.use); err != nil {
+			return errors.Wrap(err, "unable to use")
+		}
 	}
 	return nil
 }
