@@ -274,11 +274,14 @@ func (t *Template) execCode(code string, out io.Writer, context interface{}) (in
 	}
 	if context != nil {
 		// do we need to
-		t.interp.Use(interp.Exports{
-			"internal": map[string]reflect.Value{
+		err := t.interp.Use(interp.Exports{
+			"internal/internal": map[string]reflect.Value{
 				"context": reflect.ValueOf(context),
 			},
 		})
+		if err != nil {
+			return 0, errors.Wrapf(err, "unable to use context")
+		}
 
 		// always reimport internal
 		if _, err := t.safeEval(`import . "internal"`); err != nil {
