@@ -266,10 +266,10 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 	n, err := t.execCode(buf.String(), writer, context)
 	if err != nil {
 		var errWriter strings.Builder
-		scanner := bufio.NewScanner(&buf)
+		scnr := bufio.NewScanner(&buf)
 		i := 1
-		for scanner.Scan() {
-			fmt.Fprintf(&errWriter, "%d\t%s\n", i, scanner.Text())
+		for scnr.Scan() {
+			fmt.Fprintf(&errWriter, "%d\t%s\n", i, scnr.Text())
 			i++
 		}
 
