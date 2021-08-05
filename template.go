@@ -272,6 +272,9 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 			fmt.Fprintf(&errWriter, "%d\t%s\n", i, scnr.Text())
 			i++
 		}
+		if err := scnr.Err(); err != nil {
+			return 0, errors.Wrap(err, "unable to scan source")
+		}
 
 		return 0, errors.Wrapf(err, "error during execution of\n%s", errWriter.String())
 	}
