@@ -711,4 +711,23 @@ if context.Name == "" { -$>
 		template.MustExec(&buf, Context{Name: ""})
 		require.Equal(t, "Hello Unknown", buf.String())
 	})
+
+	t.Run("multi line - html", func(t *testing.T) {
+		template := MustNew(interp.Options{}, stdlib.Symbols).
+			MustParseString(`<ul>
+<$-
+for _, name := range context.Names {
+	$><li><$ print(name) $></li><$
+}
+-$>
+</ul>`)
+
+		type Context struct {
+			Names []string
+		}
+
+		var buf bytes.Buffer
+		template.MustExec(&buf, Context{Names: []string{"Alice", "Joe"}})
+		require.Equal(t, "<ul><li>Alice</li><li>Joe</li></ul>", buf.String())
+	})
 }
