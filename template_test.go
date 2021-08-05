@@ -40,29 +40,13 @@ func TestExec(t *testing.T) {
 			"",
 		},
 		{
-			"Func",
-			interp.Options{},
-			[]interp.Exports{stdlib.Symbols},
-			[]Import{{Name: "", Path: "fmt"}},
-			`<html><$func Foo(text string) {
-	fmt.Printf("Hello %s", text)
-}$>
-<p><$Foo("Yaegi")$></p>
-</html>`,
-			`<html>
-<p>Hello Yaegi</p>
-</html>`,
-			"",
-		},
-
-		{
 			"Error",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
 			nil,
 			`<$ Hello $>`,
 			"",
-			`1:29: undefined: Hello`,
+			"error during execution of\n1\t Hello \n: 1:29: undefined: Hello",
 		},
 		{
 			"Import",
@@ -282,7 +266,7 @@ func TestPanic(t *testing.T) {
 		MustParseString(`<$panic("Oh no")$>`)
 	var buf bytes.Buffer
 	_, err := template.Exec(&buf, nil)
-	require.EqualError(t, err, "Oh no")
+	require.EqualError(t, err, "error during execution of\n1\tpanic(\"Oh no\")\n: Oh no")
 }
 
 func TestNoStartOrEnd(t *testing.T) {
@@ -685,5 +669,65 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
+	})
+}
+
+func TestMultiParts(t *testing.T) {
+	t.Run("single line", func(t *testing.T) {
+		template := MustNew(interp.Options{}, stdlib.Symbols).
+			MustParseString(`Hello <$ if context.Name == "" { $>Unknown<$ } else { print(context.Name) } $>`)
+
+		type Context struct {
+			Name string
+		}
+
+		var buf bytes.Buffer
+		template.MustExec(&buf, Context{Name: "Joe"})
+		require.Equal(t, "Hello Joe", buf.String())
+		buf.Reset()
+		template.MustExec(&buf, Context{Name: ""})
+		require.Equal(t, "Hello Unknown", buf.String())
+	})
+
+	t.Run("multi line", func(t *testing.T) {
+		template := MustNew(interp.Options{}, stdlib.Symbols).
+			MustParseString(`Hello
+<$- 
+print(" ")
+if context.Name == "" { -$>
+	Unknown
+<$- } else {
+	print(context.Name)
+} -$>`)
+
+		type Context struct {
+			Name string
+		}
+
+		var buf bytes.Buffer
+		template.MustExec(&buf, Context{Name: "Joe"})
+		require.Equal(t, "Hello Joe", buf.String())
+		buf.Reset()
+		template.MustExec(&buf, Context{Name: ""})
+		require.Equal(t, "Hello Unknown", buf.String())
+	})
+
+	t.Run("multi line - html", func(t *testing.T) {
+		template := MustNew(interp.Options{}, stdlib.Symbols).
+			MustParseString(`<ul>
+<$-
+for _, name := range context.Names {
+	$><li><$ print(name) $></li><$
+}
+-$>
+</ul>`)
+
+		type Context struct {
+			Names []string
+		}
+
+		var buf bytes.Buffer
+		template.MustExec(&buf, Context{Names: []string{"Alice", "Joe"}})
+		require.Equal(t, "<ul><li>Alice</li><li>Joe</li></ul>", buf.String())
 	})
 }
