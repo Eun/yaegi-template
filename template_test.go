@@ -40,22 +40,6 @@ func TestExec(t *testing.T) {
 			"",
 		},
 		{
-			"Func",
-			interp.Options{},
-			[]interp.Exports{stdlib.Symbols},
-			[]Import{{Name: "", Path: "fmt"}},
-			`<html><$func Foo(text string) {
-	fmt.Printf("Hello %s", text)
-}$>
-<p><$Foo("Yaegi")$></p>
-</html>`,
-			`<html>
-<p>Hello Yaegi</p>
-</html>`,
-			"",
-		},
-
-		{
 			"Error",
 			interp.Options{},
 			[]interp.Exports{stdlib.Symbols},
@@ -685,5 +669,46 @@ func TestTemplateWithAdditionalSymbols(t *testing.T) {
 				MustExec(&buf, nil)
 			require.Equal(t, "Hello foo", buf.String())
 		})
+	})
+}
+
+func TestMultiParts(t *testing.T) {
+	t.Run("single line", func(t *testing.T) {
+		template := MustNew(interp.Options{}, stdlib.Symbols).
+			MustParseString(`Hello <$ if context.Name == "" { $>Unknown<$ } else { print(context.Name) } $>`)
+
+		type Context struct {
+			Name string
+		}
+
+		var buf bytes.Buffer
+		template.MustExec(&buf, Context{Name: "Joe"})
+		require.Equal(t, "Hello Joe", buf.String())
+		buf.Reset()
+		template.MustExec(&buf, Context{Name: ""})
+		require.Equal(t, "Hello Unknown", buf.String())
+	})
+
+	t.Run("multi line", func(t *testing.T) {
+		template := MustNew(interp.Options{}, stdlib.Symbols).
+			MustParseString(`Hello
+<$- 
+print(" ")
+if context.Name == "" { -$>
+	Unknown
+<$- } else {
+	print(context.Name)
+} -$>`)
+
+		type Context struct {
+			Name string
+		}
+
+		var buf bytes.Buffer
+		template.MustExec(&buf, Context{Name: "Joe"})
+		require.Equal(t, "Hello Joe", buf.String())
+		buf.Reset()
+		template.MustExec(&buf, Context{Name: ""})
+		require.Equal(t, "Hello Unknown", buf.String())
 	})
 }

@@ -44,8 +44,10 @@
 package yaegi_template
 
 import (
+	"bufio"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -233,34 +235,47 @@ func (t *Template) Exec(writer io.Writer, context interface{}) (int, error) {
 		return 0, err
 	}
 
-	total := 0
+	var buf bytes.Buffer
 
 	for it.Next() {
 		part := it.Value()
 		switch part.Type {
 		case codebuffer.CodePartType:
-			n, err := t.execCode(string(part.Content), writer, context)
-			if err != nil {
-				return total, err
+			if _, err := buf.Write(part.Content); err != nil {
+				return 0, errors.Wrap(err, "unable to write code part")
 			}
-			if n > 0 {
-				total += n
+			if _, err := buf.WriteRune('\n'); err != nil {
+				return 0, errors.Wrap(err, "unable to write code part")
 			}
 		case codebuffer.TextPartType:
-			var n int
-			if writer != nil {
-				n, err = writer.Write(part.Content)
+			if _, err := buf.WriteString("print("); err != nil {
+				return 0, errors.Wrap(err, "unable to write text part")
 			}
-			if err != nil {
-				return total, err
+			if _, err := buf.WriteString(strconv.Quote(string(part.Content))); err != nil {
+				return 0, errors.Wrap(err, "unable to write text part")
 			}
-			if n > 0 {
-				total += n
+			if _, err := buf.WriteString(")\n"); err != nil {
+				return 0, errors.Wrap(err, "unable to write text part")
 			}
 		}
 	}
+	if err := it.Error(); err != nil {
+		return 0, err
+	}
 
-	return total, it.Error()
+	n, err := t.execCode(buf.String(), writer, context)
+	if err != nil {
+		var errWriter strings.Builder
+		scanner := bufio.NewScanner(&buf)
+		i := 1
+		for scanner.Scan() {
+			fmt.Fprintf(&errWriter, "%d\t%s\n", i, scanner.Text())
+			i++
+		}
+
+		return 0, errors.Wrapf(err, "error during execution of\n%s", errWriter.String())
+	}
+	return n, nil
 }
 
 // MustExec is like Exec, except it panics on failure.
