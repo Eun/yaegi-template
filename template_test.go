@@ -46,7 +46,7 @@ func TestExec(t *testing.T) {
 			nil,
 			`<$ Hello $>`,
 			"",
-			`1:29: undefined: Hello`,
+			"error during execution of\n1\t Hello \n: 1:29: undefined: Hello",
 		},
 		{
 			"Import",
@@ -266,7 +266,7 @@ func TestPanic(t *testing.T) {
 		MustParseString(`<$panic("Oh no")$>`)
 	var buf bytes.Buffer
 	_, err := template.Exec(&buf, nil)
-	require.EqualError(t, err, "Oh no")
+	require.EqualError(t, err, "error during execution of\n1\tpanic(\"Oh no\")\n: Oh no")
 }
 
 func TestNoStartOrEnd(t *testing.T) {
