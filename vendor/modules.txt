@@ -9,8 +9,9 @@ github.com/pmezard/go-difflib/difflib
 ## explicit
 github.com/stretchr/testify/assert
 github.com/stretchr/testify/require
-# github.com/traefik/yaegi v0.9.21
+# github.com/traefik/yaegi v0.10.0
 ## explicit
+github.com/traefik/yaegi/internal/unsafe2
 github.com/traefik/yaegi/interp
 github.com/traefik/yaegi/stdlib
 # go.uber.org/atomic v1.9.0

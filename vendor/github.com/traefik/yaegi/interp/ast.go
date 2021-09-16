@@ -680,6 +680,7 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 
 		case *ast.FuncDecl:
 			n := addChild(&root, anc, pos, funcDecl, aNop)
+			n.val = n
 			if a.Recv == nil {
 				// function is not a method, create an empty receiver list
 				addChild(&root, astNode{n, nod}, pos, fieldList, aNop)
@@ -900,6 +901,7 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 	if pkgName == "" {
 		return "", root, errors.New("no package name found")
 	}
+	interp.roots = append(interp.roots, root)
 	return pkgName, root, err
 }
 
