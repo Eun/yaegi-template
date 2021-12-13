@@ -50,7 +50,7 @@ jobs:
         run: go test -v -count=1 -coverprofile="coverage-${{ matrix.platform }}-${{ matrix.go-version }}.txt" -covermode=atomic
       -
         name: Send coverage
-        uses: shogo82148/actions-goveralls@v1.4.6
+        uses: shogo82148/actions-goveralls@v1.5.1
         with:
           path-to-profile: coverage-${{ matrix.platform }}-${{ matrix.go-version }}.txt
           flag-name: ${{ matrix.platform }}-${{ matrix.go-version }}
@@ -61,6 +61,6 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     steps:
-      - uses: shogo82148/actions-goveralls@v1.4.6
+      - uses: shogo82148/actions-goveralls@v1.5.1
         with:
           parallel-finished: true
