@@ -7,11 +7,13 @@ import (
 	"flag"
 	"fmt"
 	"go/build"
+	"go/constant"
 	"go/scanner"
 	"go/token"
 	"io"
-	"io/ioutil"
+	"io/fs"
 	"log"
+	"math/bits"
 	"os"
 	"os/signal"
 	"path"
@@ -27,6 +29,7 @@ import (
 
 // Interpreter node structure for AST and CFG.
 type node struct {
+	debug  *nodeDebugData // debug info
 	child  []*node        // child subtrees (AST)
 	anc    *node          // ancestor (AST)
 	start  *node          // entry point in subtree (CFG)
@@ -45,12 +48,53 @@ type node struct {
 	typ    *itype         // type of value in frame, or nil
 	recv   *receiver      // method receiver node for call, or nil
 	types  []reflect.Type // frame types, used by function literals only
+	scope  *scope         // frame scope
 	action action         // action
 	exec   bltn           // generated function to execute
 	gen    bltnGenerator  // generator function to produce above bltn
 	val    interface{}    // static generic value (CFG execution)
 	rval   reflect.Value  // reflection value to let runtime access interpreter (CFG)
 	ident  string         // set if node is a var or func
+	meta   interface{}    // meta stores meta information between gta runs, like errors
+}
+
+func (n *node) shouldBreak() bool {
+	if n == nil || n.debug == nil {
+		return false
+	}
+
+	if n.debug.breakOnLine || n.debug.breakOnCall {
+		return true
+	}
+
+	return false
+}
+
+func (n *node) setProgram(p *Program) {
+	if n.debug == nil {
+		n.debug = new(nodeDebugData)
+	}
+	n.debug.program = p
+}
+
+func (n *node) setBreakOnCall(v bool) {
+	if n.debug == nil {
+		if !v {
+			return
+		}
+		n.debug = new(nodeDebugData)
+	}
+	n.debug.breakOnCall = v
+}
+
+func (n *node) setBreakOnLine(v bool) {
+	if n.debug == nil {
+		if !v {
+			return
+		}
+		n.debug = new(nodeDebugData)
+	}
+	n.debug.breakOnLine = v
 }
 
 // receiver stores method receiver object access path.
@@ -66,6 +110,8 @@ type frame struct {
 	// via newFrame/runid/setrunid/clone.
 	// Located at start of struct to ensure proper aligment.
 	id uint64
+
+	debug *frameDebugData
 
 	root *frame          // global space
 	anc  *frame          // ancestor frame (caller space)
@@ -104,6 +150,7 @@ func (f *frame) clone(fork bool) *frame {
 		recovered: f.recovered,
 		id:        f.runid(),
 		done:      f.done,
+		debug:     f.debug,
 	}
 	if fork {
 		nf.data = make([]reflect.Value, len(f.data))
@@ -124,18 +171,22 @@ type imports map[string]map[string]*symbol
 
 // opt stores interpreter options.
 type opt struct {
-	astDot bool // display AST graph (debug)
-	cfgDot bool // display CFG graph (debug)
 	// dotCmd is the command to process the dot graph produced when astDot and/or
 	// cfgDot is enabled. It defaults to 'dot -Tdot -o <filename>.dot'.
 	dotCmd       string
-	noRun        bool          // compile, but do not run
-	fastChan     bool          // disable cancellable chan operations
-	context      build.Context // build context: GOPATH, build constraints
-	specialStdio bool          // Allows os.Stdin, os.Stdout, os.Stderr to not be file descriptors
-	stdin        io.Reader     // standard input
-	stdout       io.Writer     // standard output
-	stderr       io.Writer     // standard error
+	context      build.Context     // build context: GOPATH, build constraints
+	stdin        io.Reader         // standard input
+	stdout       io.Writer         // standard output
+	stderr       io.Writer         // standard error
+	args         []string          // cmdline args
+	env          map[string]string // environment of interpreter, entries in form of "key=value"
+	filesystem   fs.FS             // filesystem containing sources
+	astDot       bool              // display AST graph (debug)
+	cfgDot       bool              // display CFG graph (debug)
+	noRun        bool              // compile, but do not run
+	fastChan     bool              // disable cancellable chan operations
+	specialStdio bool              // allows os.Stdin, os.Stdout, os.Stderr to not be file descriptors
+	unrestricted bool              // allow use of non sandboxed symbols
 }
 
 // Interpreter contains global resources and state.
@@ -166,8 +217,11 @@ type Interpreter struct {
 	srcPkg   imports           // source packages used in interpreter, indexed by path
 	pkgNames map[string]string // package names, indexed by import path
 	done     chan struct{}     // for cancellation of channel operations
+	roots    []*node
 
 	hooks *hooks // symbol hooks
+
+	debugger *Debugger
 }
 
 const (
@@ -253,12 +307,27 @@ type Options struct {
 	// They default to os.Stdin, os.Stdout and os.Stderr respectively.
 	Stdin          io.Reader
 	Stdout, Stderr io.Writer
+
+	// Cmdline args, defaults to os.Args.
+	Args []string
+
+	// Environment of interpreter. Entries are in the form "key=values".
+	Env []string
+
+	// SourcecodeFilesystem is where the _sourcecode_ is loaded from and does
+	// NOT affect the filesystem of scripts when they run.
+	// It can be any fs.FS compliant filesystem (e.g. embed.FS, or fstest.MapFS for testing)
+	// See example/fs/fs_test.go for an example.
+	SourcecodeFilesystem fs.FS
+
+	// Unrestricted allows to run non sandboxed stdlib symbols such as os/exec and environment
+	Unrestricted bool
 }
 
 // New returns a new interpreter.
 func New(options Options) *Interpreter {
 	i := Interpreter{
-		opt:      opt{context: build.Default},
+		opt:      opt{context: build.Default, filesystem: &realFS{}, env: map[string]string{}},
 		frame:    newFrame(nil, 0, 0),
 		fset:     token.NewFileSet(),
 		universe: initUniverse(),
@@ -280,6 +349,28 @@ func New(options Options) *Interpreter {
 
 	if i.opt.stderr = options.Stderr; i.opt.stderr == nil {
 		i.opt.stderr = os.Stderr
+	}
+
+	if i.opt.args = options.Args; i.opt.args == nil {
+		i.opt.args = os.Args
+	}
+
+	// unrestricted allows to use non sandboxed stdlib symbols and env.
+	if options.Unrestricted {
+		i.opt.unrestricted = true
+	} else {
+		for _, e := range options.Env {
+			a := strings.SplitN(e, "=", 2)
+			if len(a) == 2 {
+				i.opt.env[a[0]] = a[1]
+			} else {
+				i.opt.env[a[0]] = ""
+			}
+		}
+	}
+
+	if options.SourcecodeFilesystem != nil {
+		i.opt.filesystem = options.SourcecodeFilesystem
 	}
 
 	i.opt.context.GOPATH = options.GoPath
@@ -304,7 +395,8 @@ func New(options Options) *Interpreter {
 	// fastChan disables the cancellable version of channel operations in evalWithContext
 	i.opt.fastChan, _ = strconv.ParseBool(os.Getenv("YAEGI_FAST_CHAN"))
 
-	// specialStdio allows to assign directly io.Writer and io.Reader to os.Stdxxx, even if they are not file descriptors.
+	// specialStdio allows to assign directly io.Writer and io.Reader to os.Stdxxx,
+	// even if they are not file descriptors.
 	i.opt.specialStdio, _ = strconv.ParseBool(os.Getenv("YAEGI_SPECIAL_STDIO"))
 
 	return &i
@@ -331,27 +423,27 @@ const (
 func initUniverse() *scope {
 	sc := &scope{global: true, sym: map[string]*symbol{
 		// predefined Go types
-		"bool":        {kind: typeSym, typ: &itype{cat: boolT, name: "bool"}},
-		"byte":        {kind: typeSym, typ: &itype{cat: uint8T, name: "uint8"}},
-		"complex64":   {kind: typeSym, typ: &itype{cat: complex64T, name: "complex64"}},
-		"complex128":  {kind: typeSym, typ: &itype{cat: complex128T, name: "complex128"}},
-		"error":       {kind: typeSym, typ: &itype{cat: errorT, name: "error"}},
-		"float32":     {kind: typeSym, typ: &itype{cat: float32T, name: "float32"}},
-		"float64":     {kind: typeSym, typ: &itype{cat: float64T, name: "float64"}},
-		"int":         {kind: typeSym, typ: &itype{cat: intT, name: "int"}},
-		"int8":        {kind: typeSym, typ: &itype{cat: int8T, name: "int8"}},
-		"int16":       {kind: typeSym, typ: &itype{cat: int16T, name: "int16"}},
-		"int32":       {kind: typeSym, typ: &itype{cat: int32T, name: "int32"}},
-		"int64":       {kind: typeSym, typ: &itype{cat: int64T, name: "int64"}},
-		"interface{}": {kind: typeSym, typ: &itype{cat: interfaceT}},
-		"rune":        {kind: typeSym, typ: &itype{cat: int32T, name: "int32"}},
-		"string":      {kind: typeSym, typ: &itype{cat: stringT, name: "string"}},
-		"uint":        {kind: typeSym, typ: &itype{cat: uintT, name: "uint"}},
-		"uint8":       {kind: typeSym, typ: &itype{cat: uint8T, name: "uint8"}},
-		"uint16":      {kind: typeSym, typ: &itype{cat: uint16T, name: "uint16"}},
-		"uint32":      {kind: typeSym, typ: &itype{cat: uint32T, name: "uint32"}},
-		"uint64":      {kind: typeSym, typ: &itype{cat: uint64T, name: "uint64"}},
-		"uintptr":     {kind: typeSym, typ: &itype{cat: uintptrT, name: "uintptr"}},
+		"bool":        {kind: typeSym, typ: &itype{cat: boolT, name: "bool", str: "bool"}},
+		"byte":        {kind: typeSym, typ: &itype{cat: uint8T, name: "uint8", str: "uint8"}},
+		"complex64":   {kind: typeSym, typ: &itype{cat: complex64T, name: "complex64", str: "complex64"}},
+		"complex128":  {kind: typeSym, typ: &itype{cat: complex128T, name: "complex128", str: "complex128"}},
+		"error":       {kind: typeSym, typ: &itype{cat: errorT, name: "error", str: "error"}},
+		"float32":     {kind: typeSym, typ: &itype{cat: float32T, name: "float32", str: "float32"}},
+		"float64":     {kind: typeSym, typ: &itype{cat: float64T, name: "float64", str: "float64"}},
+		"int":         {kind: typeSym, typ: &itype{cat: intT, name: "int", str: "int"}},
+		"int8":        {kind: typeSym, typ: &itype{cat: int8T, name: "int8", str: "int8"}},
+		"int16":       {kind: typeSym, typ: &itype{cat: int16T, name: "int16", str: "int16"}},
+		"int32":       {kind: typeSym, typ: &itype{cat: int32T, name: "int32", str: "int32"}},
+		"int64":       {kind: typeSym, typ: &itype{cat: int64T, name: "int64", str: "int64"}},
+		"interface{}": {kind: typeSym, typ: &itype{cat: interfaceT, str: "interface{}"}},
+		"rune":        {kind: typeSym, typ: &itype{cat: int32T, name: "int32", str: "int32"}},
+		"string":      {kind: typeSym, typ: &itype{cat: stringT, name: "string", str: "string"}},
+		"uint":        {kind: typeSym, typ: &itype{cat: uintT, name: "uint", str: "uint"}},
+		"uint8":       {kind: typeSym, typ: &itype{cat: uint8T, name: "uint8", str: "uint8"}},
+		"uint16":      {kind: typeSym, typ: &itype{cat: uint16T, name: "uint16", str: "uint16"}},
+		"uint32":      {kind: typeSym, typ: &itype{cat: uint32T, name: "uint32", str: "uint32"}},
+		"uint64":      {kind: typeSym, typ: &itype{cat: uint64T, name: "uint64", str: "uint64"}},
+		"uintptr":     {kind: typeSym, typ: &itype{cat: uintptrT, name: "uintptr", str: "uintptr"}},
 
 		// predefined Go constants
 		"false": {kind: constSym, typ: untypedBool(), rval: reflect.ValueOf(false)},
@@ -359,7 +451,7 @@ func initUniverse() *scope {
 		"iota":  {kind: constSym, typ: untypedInt()},
 
 		// predefined Go zero value
-		"nil": {typ: &itype{cat: nilT, untyped: true}},
+		"nil": {typ: &itype{cat: nilT, untyped: true, str: "nil"}},
 
 		// predefined Go builtins
 		bltnAppend:  {kind: bltnSym, builtin: _append},
@@ -406,16 +498,40 @@ func (interp *Interpreter) Eval(src string) (res reflect.Value, err error) {
 // by the interpreter, and a non nil error in case of failure.
 // The main function of the main package is executed if present.
 func (interp *Interpreter) EvalPath(path string) (res reflect.Value, err error) {
-	if !isFile(path) {
+	if !isFile(interp.opt.filesystem, path) {
 		_, err := interp.importSrc(mainID, path, NoTest)
 		return res, err
 	}
 
-	b, err := ioutil.ReadFile(path)
+	b, err := fs.ReadFile(interp.filesystem, path)
 	if err != nil {
 		return res, err
 	}
 	return interp.eval(string(b), path, false)
+}
+
+// EvalPathWithContext evaluates Go code located at path and returns the last
+// result computed by the interpreter, and a non nil error in case of failure.
+// The main function of the main package is executed if present.
+func (interp *Interpreter) EvalPathWithContext(ctx context.Context, path string) (res reflect.Value, err error) {
+	interp.mutex.Lock()
+	interp.done = make(chan struct{})
+	interp.cancelChan = !interp.opt.fastChan
+	interp.mutex.Unlock()
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		res, err = interp.EvalPath(path)
+	}()
+
+	select {
+	case <-ctx.Done():
+		interp.stop()
+		return reflect.Value{}, ctx.Err()
+	case <-done:
+	}
+	return res, err
 }
 
 // EvalTest evaluates Go code located at path, including test files with "_test.go" suffix.
@@ -483,129 +599,22 @@ func (interp *Interpreter) Symbols(importPath string) Exports {
 	return m
 }
 
-func isFile(path string) bool {
-	fi, err := os.Stat(path)
+func isFile(filesystem fs.FS, path string) bool {
+	fi, err := fs.Stat(filesystem, path)
 	return err == nil && fi.Mode().IsRegular()
 }
 
 func (interp *Interpreter) eval(src, name string, inc bool) (res reflect.Value, err error) {
-	if name != "" {
-		interp.name = name
-	}
-	if interp.name == "" {
-		interp.name = DefaultSourceName
-	}
-
-	defer func() {
-		r := recover()
-		if r != nil {
-			var pc [64]uintptr // 64 frames should be enough.
-			n := runtime.Callers(1, pc[:])
-			err = Panic{Value: r, Callers: pc[:n], Stack: debug.Stack()}
-		}
-	}()
-
-	// Parse source to AST.
-	pkgName, root, err := interp.ast(src, interp.name, inc)
-	if err != nil || root == nil {
-		return res, err
-	}
-
-	if interp.astDot {
-		dotCmd := interp.dotCmd
-		if dotCmd == "" {
-			dotCmd = defaultDotCmd(interp.name, "yaegi-ast-")
-		}
-		root.astDot(dotWriter(dotCmd), interp.name)
-		if interp.noRun {
-			return res, err
-		}
-	}
-
-	// Perform global types analysis.
-	if err = interp.gtaRetry([]*node{root}, pkgName); err != nil {
-		return res, err
-	}
-
-	// Annotate AST with CFG informations.
-	initNodes, err := interp.cfg(root, pkgName)
+	prog, err := interp.compileSrc(src, name, inc)
 	if err != nil {
-		if interp.cfgDot {
-			dotCmd := interp.dotCmd
-			if dotCmd == "" {
-				dotCmd = defaultDotCmd(interp.name, "yaegi-cfg-")
-			}
-			root.cfgDot(dotWriter(dotCmd))
-		}
 		return res, err
-	}
-
-	if root.kind != fileStmt {
-		// REPL may skip package statement.
-		setExec(root.start)
-	}
-	interp.mutex.Lock()
-	gs := interp.scopes[pkgName]
-	if interp.universe.sym[pkgName] == nil {
-		// Make the package visible under a path identical to its name.
-		interp.srcPkg[pkgName] = gs.sym
-		interp.universe.sym[pkgName] = &symbol{kind: pkgSym, typ: &itype{cat: srcPkgT, path: pkgName}}
-		interp.pkgNames[pkgName] = pkgName
-	}
-	interp.mutex.Unlock()
-
-	// Add main to list of functions to run, after all inits.
-	if m := gs.sym[mainID]; pkgName == mainID && m != nil {
-		initNodes = append(initNodes, m.node)
-	}
-
-	if interp.cfgDot {
-		dotCmd := interp.dotCmd
-		if dotCmd == "" {
-			dotCmd = defaultDotCmd(interp.name, "yaegi-cfg-")
-		}
-		root.cfgDot(dotWriter(dotCmd))
 	}
 
 	if interp.noRun {
 		return res, err
 	}
 
-	// Generate node exec closures.
-	if err = genRun(root); err != nil {
-		return res, err
-	}
-
-	// Init interpreter execution memory frame.
-	interp.frame.setrunid(interp.runid())
-	interp.frame.mutex.Lock()
-	interp.resizeFrame()
-	interp.frame.mutex.Unlock()
-
-	// Execute node closures.
-	interp.run(root, nil)
-
-	// Wire and execute global vars.
-	n, err := genGlobalVars([]*node{root}, interp.scopes[pkgName])
-	if err != nil {
-		return res, err
-	}
-	interp.run(n, nil)
-
-	for _, n := range initNodes {
-		interp.run(n, interp.frame)
-	}
-	v := genValue(root)
-	res = v(interp.frame)
-
-	// If result is an interpreter node, wrap it in a runtime callable function.
-	if res.IsValid() {
-		if n, ok := res.Interface().(*node); ok {
-			res = genFunctionWrapper(n)(interp.frame)
-		}
-	}
-
-	return res, err
+	return interp.Execute(prog)
 }
 
 // EvalWithContext evaluates Go code represented as a string. It returns
@@ -621,7 +630,14 @@ func (interp *Interpreter) EvalWithContext(ctx context.Context, src string) (ref
 
 	done := make(chan struct{})
 	go func() {
-		defer close(done)
+		defer func() {
+			if r := recover(); r != nil {
+				var pc [64]uintptr
+				n := runtime.Callers(1, pc[:])
+				err = Panic{Value: r, Callers: pc[:n], Stack: debug.Stack()}
+			}
+			close(done)
+		}()
 		v, err = interp.Eval(src)
 	}()
 
@@ -684,17 +700,17 @@ func (interp *Interpreter) Use(values Exports) error {
 	// Checks if input values correspond to stdlib packages by looking for one
 	// well known stdlib package path.
 	if _, ok := values["fmt/fmt"]; ok {
-		fixStdio(interp)
+		fixStdlib(interp)
 	}
 	return nil
 }
 
-// fixStdio redefines interpreter stdlib symbols to use the standard input,
+// fixStdlib redefines interpreter stdlib symbols to use the standard input,
 // output and errror assigned to the interpreter. The changes are limited to
 // the interpreter only.
 // Note that it is possible to escape the virtualized stdio by
 // read/write directly to file descriptors 0, 1, 2.
-func fixStdio(interp *Interpreter) {
+func fixStdlib(interp *Interpreter) {
 	p := interp.binPkg["fmt"]
 	if p == nil {
 		return
@@ -739,6 +755,7 @@ func fixStdio(interp *Interpreter) {
 	}
 
 	if p = interp.binPkg["os"]; p != nil {
+		p["Args"] = reflect.ValueOf(&interp.args).Elem()
 		if interp.specialStdio {
 			// Inherit streams from interpreter even if they do not have a file descriptor.
 			p["Stdin"] = reflect.ValueOf(&stdin).Elem()
@@ -756,6 +773,27 @@ func fixStdio(interp *Interpreter) {
 				p["Stderr"] = reflect.ValueOf(&s).Elem()
 			}
 		}
+		if !interp.unrestricted {
+			// In restricted mode, scripts can only access to a passed virtualized env, and can not write the real one.
+			getenv := func(key string) string { return interp.env[key] }
+			p["Clearenv"] = reflect.ValueOf(func() { interp.env = map[string]string{} })
+			p["ExpandEnv"] = reflect.ValueOf(func(s string) string { return os.Expand(s, getenv) })
+			p["Getenv"] = reflect.ValueOf(getenv)
+			p["LookupEnv"] = reflect.ValueOf(func(key string) (s string, ok bool) { s, ok = interp.env[key]; return })
+			p["Setenv"] = reflect.ValueOf(func(key, value string) error { interp.env[key] = value; return nil })
+			p["Unsetenv"] = reflect.ValueOf(func(key string) error { delete(interp.env, key); return nil })
+			p["Environ"] = reflect.ValueOf(func() (a []string) {
+				for k, v := range interp.env {
+					a = append(a, k+"="+v)
+				}
+				return
+			})
+		}
+	}
+
+	if p = interp.binPkg["math/bits"]; p != nil {
+		// Do not trust extracted value maybe from another arch.
+		p["UintSize"] = reflect.ValueOf(constant.MakeInt64(bits.UintSize))
 	}
 }
 
