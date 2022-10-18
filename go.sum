@@ -11,8 +11,8 @@ github.com/stretchr/testify v1.3.0/go.mod h1:M5WIy9Dh21IEIfnGCwXGc5bZfKNJtfHm1UV
 github.com/stretchr/testify v1.7.1/go.mod h1:6Fq8oRcR53rry900zMqJjRRixrwX3KX962/h/Wwjteg=
 github.com/stretchr/testify v1.8.0 h1:pSgiaMZlXftHpm5L7V1+rVB+AZJydKsMxsQBIJw4PKk=
 github.com/stretchr/testify v1.8.0/go.mod h1:yNjHg4UonilssWZ8iaSj1OCr/vHnekPRkoO+kdMU+MU=
-github.com/traefik/yaegi v0.9.21 h1:Ar123+dawjSKTUqkhWF5q7pCeR3Ei0V5070teAZxnQ0=
-github.com/traefik/yaegi v0.9.21/go.mod h1:FAYnRlZyuVlEkvnkHq3bvJ1lW5be6XuwgLdkYgYG6Lk=
+github.com/traefik/yaegi v0.14.2 h1:9t9xepIfar6BrYdwJHGc+XRKo6qFoJCl6Z46N3hUtUw=
+github.com/traefik/yaegi v0.14.2/go.mod h1:AVRxhaI2G+nUsaM1zyktzwXn69G3t/AuTDrCiTds9p0=
 go.uber.org/atomic v1.9.0 h1:ECmE8Bn/WFTYwEW/bpKD3M8VtR/zQVbavAoalC1PYyE=
 go.uber.org/atomic v1.9.0/go.mod h1:fEN4uk6kAWBTFdckzkM89CLk9XfWZrxpCo0nPH17wJc=
 gopkg.in/check.v1 v0.0.0-20161208181325-20d25e280405 h1:yhCVgyC4o1eVCa2tZl7eS0r+SDo693bJlVdllGtEeKM=
