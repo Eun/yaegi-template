@@ -1490,6 +1490,13 @@ func addAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1499,6 +1506,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, s := v0(f)
 				v.SetString(s + v1)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -1507,6 +1517,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i + j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1515,6 +1528,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i + j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -1523,6 +1539,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetFloat(i + j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -1531,6 +1550,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() + v1)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1542,6 +1564,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, s := v0(f)
 				v.SetString(s + v1(f).String())
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
@@ -1551,6 +1576,9 @@ func addAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i + j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1560,6 +1588,9 @@ func addAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i + j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -1569,6 +1600,9 @@ func addAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetFloat(i + j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -1577,6 +1611,9 @@ func addAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() + v1(f).Complex())
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1587,6 +1624,13 @@ func andAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1596,6 +1640,9 @@ func andAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i & j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1604,6 +1651,9 @@ func andAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i & j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1616,6 +1666,9 @@ func andAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i & j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1625,6 +1678,9 @@ func andAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i & j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1635,6 +1691,13 @@ func andNotAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1644,6 +1707,9 @@ func andNotAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i &^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1652,6 +1718,9 @@ func andNotAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i &^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1664,6 +1733,9 @@ func andNotAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i &^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1673,6 +1745,9 @@ func andNotAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i &^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1683,6 +1758,13 @@ func mulAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1692,6 +1774,9 @@ func mulAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i * j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1700,6 +1785,9 @@ func mulAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i * j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -1708,6 +1796,9 @@ func mulAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetFloat(i * j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -1716,6 +1807,9 @@ func mulAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() * v1)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1728,6 +1822,9 @@ func mulAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i * j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1737,6 +1834,9 @@ func mulAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i * j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -1746,6 +1846,9 @@ func mulAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetFloat(i * j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -1754,6 +1857,9 @@ func mulAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() * v1(f).Complex())
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1764,6 +1870,13 @@ func orAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1773,6 +1886,9 @@ func orAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i | j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1781,6 +1897,9 @@ func orAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i | j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1793,6 +1912,9 @@ func orAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i | j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1802,6 +1924,9 @@ func orAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i | j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1812,6 +1937,13 @@ func quoAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1821,6 +1953,9 @@ func quoAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i / j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1829,6 +1964,9 @@ func quoAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i / j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -1837,6 +1975,9 @@ func quoAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetFloat(i / j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -1845,6 +1986,9 @@ func quoAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() / v1)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1857,6 +2001,9 @@ func quoAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i / j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1866,6 +2013,9 @@ func quoAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i / j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -1875,6 +2025,9 @@ func quoAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetFloat(i / j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -1883,6 +2036,9 @@ func quoAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() / v1(f).Complex())
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1893,6 +2049,13 @@ func remAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1902,6 +2065,9 @@ func remAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i % j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1910,6 +2076,9 @@ func remAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i % j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1922,6 +2091,9 @@ func remAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i % j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1931,6 +2103,9 @@ func remAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i % j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1941,6 +2116,13 @@ func shlAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1950,6 +2132,9 @@ func shlAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i << j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1958,6 +2143,9 @@ func shlAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i << j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1970,6 +2158,9 @@ func shlAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i << j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -1979,6 +2170,9 @@ func shlAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i << j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -1989,6 +2183,13 @@ func shrAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -1998,6 +2199,9 @@ func shrAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i >> j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -2006,6 +2210,9 @@ func shrAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i >> j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -2018,6 +2225,9 @@ func shrAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i >> j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -2027,6 +2237,9 @@ func shrAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i >> j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -2037,6 +2250,13 @@ func subAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -2046,6 +2266,9 @@ func subAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i - j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -2054,6 +2277,9 @@ func subAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i - j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -2062,6 +2288,9 @@ func subAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetFloat(i - j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -2070,6 +2299,9 @@ func subAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() - v1)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -2082,6 +2314,9 @@ func subAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i - j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -2091,6 +2326,9 @@ func subAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i - j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Float32, reflect.Float64:
@@ -2100,6 +2338,9 @@ func subAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetFloat(i - j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Complex64, reflect.Complex128:
@@ -2108,6 +2349,9 @@ func subAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v := v0(f)
 				v.SetComplex(v.Complex() - v1(f).Complex())
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -2118,6 +2362,13 @@ func xorAssign(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
 	c0, c1 := n.child[0], n.child[1]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	if c1.rval.IsValid() {
 		switch typ.Kind() {
@@ -2127,6 +2378,9 @@ func xorAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetInt(i ^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -2135,6 +2389,9 @@ func xorAssign(n *node) {
 			n.exec = func(f *frame) bltn {
 				v, i := v0(f)
 				v.SetUint(i ^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -2147,6 +2404,9 @@ func xorAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetInt(i ^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Uintptr:
@@ -2156,6 +2416,9 @@ func xorAssign(n *node) {
 				v, i := v0(f)
 				_, j := v1(f)
 				v.SetUint(i ^ j)
+				if setMap {
+					mapValue(f).SetMapIndex(indexValue(f), v)
+				}
 				return next
 			}
 		}
@@ -2165,34 +2428,54 @@ func xorAssign(n *node) {
 func dec(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
+	c0 := n.child[0]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	switch typ.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v0 := genValueInt(n.child[0])
+		v0 := genValueInt(c0)
 		n.exec = func(f *frame) bltn {
 			v, i := v0(f)
 			v.SetInt(i - 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v0 := genValueUint(n.child[0])
+		v0 := genValueUint(c0)
 		n.exec = func(f *frame) bltn {
 			v, i := v0(f)
 			v.SetUint(i - 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	case reflect.Float32, reflect.Float64:
-		v0 := genValueFloat(n.child[0])
+		v0 := genValueFloat(c0)
 		n.exec = func(f *frame) bltn {
 			v, i := v0(f)
 			v.SetFloat(i - 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	case reflect.Complex64, reflect.Complex128:
-		v0 := genValue(n.child[0])
+		v0 := genValue(c0)
 		n.exec = func(f *frame) bltn {
 			v := v0(f)
 			v.SetComplex(v.Complex() - 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	}
@@ -2201,34 +2484,54 @@ func dec(n *node) {
 func inc(n *node) {
 	next := getExec(n.tnext)
 	typ := n.typ.TypeOf()
+	c0 := n.child[0]
+	setMap := isMapEntry(c0)
+	var mapValue, indexValue func(*frame) reflect.Value
+
+	if setMap {
+		mapValue = genValue(c0.child[0])
+		indexValue = genValue(c0.child[1])
+	}
 
 	switch typ.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		v0 := genValueInt(n.child[0])
+		v0 := genValueInt(c0)
 		n.exec = func(f *frame) bltn {
 			v, i := v0(f)
 			v.SetInt(i + 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		v0 := genValueUint(n.child[0])
+		v0 := genValueUint(c0)
 		n.exec = func(f *frame) bltn {
 			v, i := v0(f)
 			v.SetUint(i + 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	case reflect.Float32, reflect.Float64:
-		v0 := genValueFloat(n.child[0])
+		v0 := genValueFloat(c0)
 		n.exec = func(f *frame) bltn {
 			v, i := v0(f)
 			v.SetFloat(i + 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	case reflect.Complex64, reflect.Complex128:
-		v0 := genValue(n.child[0])
+		v0 := genValue(c0)
 		n.exec = func(f *frame) bltn {
 			v := v0(f)
 			v.SetComplex(v.Complex() + 1)
+			if setMap {
+				mapValue(f).SetMapIndex(indexValue(f), v)
+			}
 			return next
 		}
 	}
@@ -2321,8 +2624,9 @@ func equal(n *node) {
 	typ := n.typ.concrete().TypeOf()
 	isInterface := n.typ.TypeOf().Kind() == reflect.Interface
 	c0, c1 := n.child[0], n.child[1]
+	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
-	if c0.typ.cat == aliasT || c1.typ.cat == aliasT {
+	if c0.typ.cat == linkedT || c1.typ.cat == linkedT {
 		switch {
 		case isInterface:
 			v0 := genValue(c0)
@@ -2341,7 +2645,7 @@ func equal(n *node) {
 				fnext := getExec(n.fnext)
 				n.exec = func(f *frame) bltn {
 					i1 := v1(f).Interface()
-					if i0 != i1 {
+					if i0 == i1 {
 						dest(f).SetBool(true)
 						return tnext
 					}
@@ -2363,7 +2667,7 @@ func equal(n *node) {
 				fnext := getExec(n.fnext)
 				n.exec = func(f *frame) bltn {
 					i0 := v0(f).Interface()
-					if i0 != i1 {
+					if i0 == i1 {
 						dest(f).SetBool(true)
 						return tnext
 					}
@@ -2386,7 +2690,7 @@ func equal(n *node) {
 				n.exec = func(f *frame) bltn {
 					i0 := v0(f).Interface()
 					i1 := v1(f).Interface()
-					if i0 != i1 {
+					if i0 == i1 {
 						dest(f).SetBool(true)
 						return tnext
 					}
@@ -2406,7 +2710,37 @@ func equal(n *node) {
 		return
 	}
 
-	switch t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf(); {
+	// Do not attempt to optimize '==' or '!=' if an operand is an interface.
+	// This will preserve proper dynamic type checking at runtime. For static types,
+	// type checks are already performed, so bypass them if possible.
+	if t0.Kind() == reflect.Interface || t1.Kind() == reflect.Interface {
+		v0 := genValue(c0)
+		v1 := genValue(c1)
+		if n.fnext != nil {
+			fnext := getExec(n.fnext)
+			n.exec = func(f *frame) bltn {
+				i0 := v0(f).Interface()
+				i1 := v1(f).Interface()
+				if i0 == i1 {
+					dest(f).SetBool(true)
+					return tnext
+				}
+				dest(f).SetBool(false)
+				return fnext
+			}
+		} else {
+			dest := genValue(n)
+			n.exec = func(f *frame) bltn {
+				i0 := v0(f).Interface()
+				i1 := v1(f).Interface()
+				dest(f).SetBool(i0 == i1)
+				return tnext
+			}
+		}
+		return
+	}
+
+	switch {
 	case isString(t0) || isString(t1):
 		switch {
 		case isInterface:
@@ -2890,8 +3224,9 @@ func greater(n *node) {
 	typ := n.typ.concrete().TypeOf()
 	isInterface := n.typ.TypeOf().Kind() == reflect.Interface
 	c0, c1 := n.child[0], n.child[1]
+	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
-	switch t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf(); {
+	switch {
 	case isString(t0) || isString(t1):
 		switch {
 		case isInterface:
@@ -3217,8 +3552,9 @@ func greaterEqual(n *node) {
 	typ := n.typ.concrete().TypeOf()
 	isInterface := n.typ.TypeOf().Kind() == reflect.Interface
 	c0, c1 := n.child[0], n.child[1]
+	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
-	switch t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf(); {
+	switch {
 	case isString(t0) || isString(t1):
 		switch {
 		case isInterface:
@@ -3544,8 +3880,9 @@ func lower(n *node) {
 	typ := n.typ.concrete().TypeOf()
 	isInterface := n.typ.TypeOf().Kind() == reflect.Interface
 	c0, c1 := n.child[0], n.child[1]
+	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
-	switch t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf(); {
+	switch {
 	case isString(t0) || isString(t1):
 		switch {
 		case isInterface:
@@ -3871,8 +4208,9 @@ func lowerEqual(n *node) {
 	typ := n.typ.concrete().TypeOf()
 	isInterface := n.typ.TypeOf().Kind() == reflect.Interface
 	c0, c1 := n.child[0], n.child[1]
+	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
-	switch t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf(); {
+	switch {
 	case isString(t0) || isString(t1):
 		switch {
 		case isInterface:
@@ -4198,8 +4536,9 @@ func notEqual(n *node) {
 	typ := n.typ.concrete().TypeOf()
 	isInterface := n.typ.TypeOf().Kind() == reflect.Interface
 	c0, c1 := n.child[0], n.child[1]
+	t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf()
 
-	if c0.typ.cat == aliasT || c1.typ.cat == aliasT {
+	if c0.typ.cat == linkedT || c1.typ.cat == linkedT {
 		switch {
 		case isInterface:
 			v0 := genValue(c0)
@@ -4283,7 +4622,37 @@ func notEqual(n *node) {
 		return
 	}
 
-	switch t0, t1 := c0.typ.TypeOf(), c1.typ.TypeOf(); {
+	// Do not attempt to optimize '==' or '!=' if an operand is an interface.
+	// This will preserve proper dynamic type checking at runtime. For static types,
+	// type checks are already performed, so bypass them if possible.
+	if t0.Kind() == reflect.Interface || t1.Kind() == reflect.Interface {
+		v0 := genValue(c0)
+		v1 := genValue(c1)
+		if n.fnext != nil {
+			fnext := getExec(n.fnext)
+			n.exec = func(f *frame) bltn {
+				i0 := v0(f).Interface()
+				i1 := v1(f).Interface()
+				if i0 != i1 {
+					dest(f).SetBool(true)
+					return tnext
+				}
+				dest(f).SetBool(false)
+				return fnext
+			}
+		} else {
+			dest := genValue(n)
+			n.exec = func(f *frame) bltn {
+				i0 := v0(f).Interface()
+				i1 := v1(f).Interface()
+				dest(f).SetBool(i0 != i1)
+				return tnext
+			}
+		}
+		return
+	}
+
+	switch {
 	case isString(t0) || isString(t1):
 		switch {
 		case isInterface:
