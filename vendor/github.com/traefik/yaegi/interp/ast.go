@@ -1,7 +1,6 @@
 package interp
 
 import (
-	"errors"
 	"fmt"
 	"go/ast"
 	"go/constant"
@@ -73,6 +72,7 @@ const (
 	importSpec
 	incDecStmt
 	indexExpr
+	indexListExpr
 	interfaceType
 	keyValueExpr
 	labeledStmt
@@ -93,7 +93,8 @@ const (
 	switchIfStmt
 	typeAssertExpr
 	typeDecl
-	typeSpec
+	typeSpec       // type A int
+	typeSpecAssign // type A = int
 	typeSwitch
 	unaryExpr
 	valueSpec
@@ -155,6 +156,7 @@ var kinds = [...]string{
 	importSpec:        "importSpec",
 	incDecStmt:        "incDecStmt",
 	indexExpr:         "indexExpr",
+	indexListExpr:     "indexListExpr",
 	interfaceType:     "interfaceType",
 	keyValueExpr:      "keyValueExpr",
 	labeledStmt:       "labeledStmt",
@@ -176,6 +178,7 @@ var kinds = [...]string{
 	typeAssertExpr:    "typeAssertExpr",
 	typeDecl:          "typeDecl",
 	typeSpec:          "typeSpec",
+	typeSpecAssign:    "typeSpecAssign",
 	typeSwitch:        "typeSwitch",
 	unaryExpr:         "unaryExpr",
 	valueSpec:         "valueSpec",
@@ -281,6 +284,7 @@ var actions = [...]string{
 	aDec:          "--",
 	aEqual:        "==",
 	aGreater:      ">",
+	aGreaterEqual: ">=",
 	aGetFunc:      "getFunc",
 	aGetIndex:     "getIndex",
 	aGetMethod:    "getMethod",
@@ -289,6 +293,7 @@ var actions = [...]string{
 	aLand:         "&&",
 	aLor:          "||",
 	aLower:        "<",
+	aLowerEqual:   "<=",
 	aMethod:       "Method",
 	aMul:          "*",
 	aMulAssign:    "*=",
@@ -360,21 +365,14 @@ func wrapInMain(src string) string {
 	return fmt.Sprintf("package main; func main() {%s\n}", src)
 }
 
-// Note: no type analysis is performed at this stage, it is done in pre-order
-// processing of CFG, in order to accommodate forward type declarations.
-
-// ast parses src string containing Go code and generates the corresponding AST.
-// The package name and the AST root node are returned.
-// The given name is used to set the filename of the relevant source file in the
-// interpreter's FileSet.
-func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error) {
-	var inFunc bool
+func (interp *Interpreter) parse(src, name string, inc bool) (node ast.Node, err error) {
 	mode := parser.DeclarationErrors
 
 	// Allow incremental parsing of declarations or statements, by inserting
 	// them in a pseudo file package or function. Those statements or
 	// declarations will be always evaluated in the global scope.
 	var tok token.Token
+	var inFunc bool
 	if inc {
 		tok = interp.firstToken(src)
 		switch tok {
@@ -391,18 +389,18 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 	}
 
 	if ok, err := interp.buildOk(&interp.context, name, src); !ok || err != nil {
-		return "", nil, err // skip source not matching build constraints
+		return nil, err // skip source not matching build constraints
 	}
 
 	f, err := parser.ParseFile(interp.fset, name, src, mode)
 	if err != nil {
 		// only retry if we're on an expression/statement about a func
 		if !inc || tok != token.FUNC {
-			return "", nil, err
+			return nil, err
 		}
 		// do not bother retrying if we know it's an error we're going to ignore later on.
 		if ignoreError(err, src) {
-			return "", nil, err
+			return nil, err
 		}
 		// do not lose initial error, in case retrying fails.
 		initialError := err
@@ -410,16 +408,32 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 		src := wrapInMain(strings.TrimPrefix(src, "package main;"))
 		f, err = parser.ParseFile(interp.fset, name, src, mode)
 		if err != nil {
-			return "", nil, initialError
+			return nil, initialError
 		}
 	}
 
-	setYaegiTags(&interp.context, f.Comments)
+	if inFunc {
+		// return the body of the wrapper main function
+		return f.Decls[0].(*ast.FuncDecl).Body, nil
+	}
 
+	setYaegiTags(&interp.context, f.Comments)
+	return f, nil
+}
+
+// Note: no type analysis is performed at this stage, it is done in pre-order
+// processing of CFG, in order to accommodate forward type declarations.
+
+// ast parses src string containing Go code and generates the corresponding AST.
+// The package name and the AST root node are returned.
+// The given name is used to set the filename of the relevant source file in the
+// interpreter's FileSet.
+func (interp *Interpreter) ast(f ast.Node) (string, *node, error) {
+	var err error
 	var root *node
 	var anc astNode
 	var st nodestack
-	var pkgName string
+	pkgName := "main"
 
 	addChild := func(root **node, anc astNode, pos token.Pos, kind nkind, act action) *node {
 		var i interface{}
@@ -627,7 +641,7 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 			}
 			st.push(addChild(&root, anc, pos, kind, aNop), nod)
 
-		case *ast.CommentGroup:
+		case *ast.CommentGroup, *ast.EmptyStmt:
 			return false
 
 		case *ast.CompositeLit:
@@ -680,8 +694,9 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 
 		case *ast.FuncDecl:
 			n := addChild(&root, anc, pos, funcDecl, aNop)
+			n.val = n
 			if a.Recv == nil {
-				// function is not a method, create an empty receiver list
+				// Function is not a method, create an empty receiver list.
 				addChild(&root, astNode{n, nod}, pos, fieldList, aNop)
 			}
 			st.push(n, nod)
@@ -693,7 +708,13 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 			st.push(n, nod)
 
 		case *ast.FuncType:
-			st.push(addChild(&root, anc, pos, funcType, aNop), nod)
+			n := addChild(&root, anc, pos, funcType, aNop)
+			n.val = n
+			if a.TypeParams == nil {
+				// Function has no type parameters, create an empty fied list.
+				addChild(&root, astNode{n, nod}, pos, fieldList, aNop)
+			}
+			st.push(n, nod)
 
 		case *ast.GenDecl:
 			var kind nkind
@@ -763,6 +784,9 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 		case *ast.IndexExpr:
 			st.push(addChild(&root, anc, pos, indexExpr, aGetIndex), nod)
 
+		case *ast.IndexListExpr:
+			st.push(addChild(&root, anc, pos, indexListExpr, aNop), nod)
+
 		case *ast.InterfaceType:
 			st.push(addChild(&root, anc, pos, interfaceType, aNop), nod)
 
@@ -825,6 +849,10 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 			st.push(addChild(&root, anc, pos, typeAssertExpr, aTypeAssert), nod)
 
 		case *ast.TypeSpec:
+			if a.Assign.IsValid() {
+				st.push(addChild(&root, anc, pos, typeSpecAssign, aNop), nod)
+				break
+			}
 			st.push(addChild(&root, anc, pos, typeSpec, aNop), nod)
 
 		case *ast.TypeSwitchStmt:
@@ -891,15 +919,8 @@ func (interp *Interpreter) ast(src, name string, inc bool) (string, *node, error
 		}
 		return true
 	})
-	if inFunc {
-		// Incremental parsing: statements were inserted in a pseudo function.
-		// Set root to function body so its statements are evaluated in global scope.
-		root = root.child[1].child[3]
-		root.anc = nil
-	}
-	if pkgName == "" {
-		return "", root, errors.New("no package name found")
-	}
+
+	interp.roots = append(interp.roots, root)
 	return pkgName, root, err
 }
 
