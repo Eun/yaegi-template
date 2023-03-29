@@ -6,5 +6,5 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.8.2
 	github.com/traefik/yaegi v0.9.21
-	go.uber.org/atomic v1.9.0
+	go.uber.org/atomic v1.10.0
 )
